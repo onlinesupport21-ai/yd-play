@@ -63,8 +63,7 @@ class _WalletScreenState extends State<WalletScreen> {
               child: ListTile(
                 leading: CircleAvatar(child: Icon(tx.delta >= 0 ? Icons.add_rounded : Icons.remove_rounded)),
                 title: Text(_label(tx.reason), style: const TextStyle(fontWeight: FontWeight.w700)),
-                subtitle: Text('${tx.createdAt.toLocal()}
-Balance after: ${tx.balanceAfter}'),
+                subtitle: Text('${tx.createdAt.toLocal()}\nBalance after: ${tx.balanceAfter}'),
                 isThreeLine: true,
                 trailing: Text('${tx.delta >= 0 ? '+' : ''}${tx.delta}', style: const TextStyle(fontWeight: FontWeight.w900)),
               ),

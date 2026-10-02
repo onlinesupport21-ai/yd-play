@@ -67,7 +67,7 @@ class _YdPlayBootstrapState extends State<YdPlayBootstrap> {
       useMaterial3: true,
       colorScheme: scheme,
       scaffoldBackgroundColor: brightness == Brightness.dark ? const Color(0xFF08110D) : const Color(0xFFF4FAF7),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         elevation: 0,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       ),
