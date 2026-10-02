@@ -1,0 +1,9 @@
+import 'package:flutter/material.dart';
+import '../controller/app_controller.dart';
+import '../models/models.dart';
+class NotificationsScreen extends StatefulWidget{const NotificationsScreen({super.key,required this.controller});final AppController controller;@override State<NotificationsScreen> createState()=>_NotificationsScreenState();}
+class _NotificationsScreenState extends State<NotificationsScreen>{bool loading=true;String? error;List<AppNotificationItem> items=[];int unread=0;@override void initState(){super.initState();_load();widget.controller.trackEvent('inbox_open');}
+Future<void> _load()async{setState(()=>loading=true);try{final r=await widget.controller.api.get('/notifications');items=((r['items']as List?)??const[]).whereType<Map>().map((e)=>AppNotificationItem.fromJson(e.cast<String,dynamic>())).toList();unread=int.tryParse('${r['unread']??0}')??0;error=null;}catch(e){error='$e';}finally{if(mounted)setState(()=>loading=false);}}
+Future<void> _read(AppNotificationItem n)async{if(!n.unread)return;try{await widget.controller.api.post('/notifications/${n.id}/read');await _load();}catch(_){}}
+@override Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title:Text('Inbox${unread>0?' ($unread)':''}')),body:loading?const Center(child:CircularProgressIndicator()):error!=null?Center(child:Text(error!)):RefreshIndicator(onRefresh:_load,child:items.isEmpty?ListView(children:const[SizedBox(height:180),Center(child:Text('No notifications yet.'))]):ListView(padding:const EdgeInsets.all(16),children:items.map((n)=>Card(child:ListTile(onTap:()=>_read(n),leading:Icon(n.unread?Icons.notifications_active_rounded:Icons.notifications_none_rounded),title:Text(n.title,style:TextStyle(fontWeight:n.unread?FontWeight.w900:FontWeight.w600)),subtitle:Text('${n.body}\n${n.createdAt.toLocal()}'),isThreeLine:true,trailing:n.unread?const CircleAvatar(radius:5):null))).toList())));
+}

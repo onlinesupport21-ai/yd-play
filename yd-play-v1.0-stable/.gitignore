@@ -1,0 +1,12 @@
+node_modules
+dist
+coverage
+.env
+.DS_Store
+*.log
+apps/mobile/.dart_tool
+apps/mobile/build
+apps/mobile/android/.gradle
+apps/mobile/android/key.properties
+apps/mobile/android/app/*.jks
+apps/mobile/android/app/*.keystore

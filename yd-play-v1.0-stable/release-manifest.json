@@ -1,0 +1,86 @@
+{
+  "name": "YD Play",
+  "version": "1.0.0",
+  "release": "YD Play v1.0 Stable Source Release",
+  "realMoney": false,
+  "cashOut": false,
+  "multiplayerCoinRewardsEnabled": false,
+  "mobileVersion": "0.9.0+9",
+  "services": [
+    "mobile",
+    "admin",
+    "api",
+    "realtime",
+    "postgresql",
+    "redis"
+  ],
+  "adminFeatures": [
+    "named-admin-auth",
+    "revocable-admin-sessions",
+    "rbac",
+    "user-moderation",
+    "audited-coin-adjustments",
+    "referral-config",
+    "fraud-review",
+    "moderation-reports",
+    "coin-economy-dashboard",
+    "push-campaign-composer",
+    "audit-logs"
+  ],
+  "apkCompiledInThisEnvironment": false,
+  "engagementFeatures": [
+    "missions",
+    "claimable-mission-rewards",
+    "achievements",
+    "claimable-achievement-rewards",
+    "pulse-daily-leaderboard",
+    "pulse-weekly-leaderboard",
+    "pulse-all-time-leaderboard"
+  ],
+  "notificationFeatures": [
+    "in-app-inbox",
+    "admin-campaign-dispatch",
+    "encrypted-push-device-token-storage",
+    "provider-neutral-push-webhook"
+  ],
+  "analyticsFeatures": [
+    "authenticated-event-ingestion",
+    "idempotent-event-ids",
+    "admin-event-summary"
+  ],
+  "safetyFeatures": [
+    "mobile-report-form",
+    "my-report-status",
+    "signal-clash-opponent-report"
+  ],
+  "public_release_ready": false,
+  "open_release_gates": [
+    "compile signed Android APK",
+    "physical device QA",
+    "fresh database integration test",
+    "load and security testing",
+    "final jurisdiction-specific legal review"
+  ],
+  "qa": {
+    "typescript_tsx_files": 96,
+    "typescript_syntax_diagnostics": 0,
+    "dart_files_checked": 24,
+    "dart_missing_local_imports": 0,
+    "android_xml_files_parsed": 8,
+    "yaml_files_parsed": 6,
+    "json_files_parsed": 9,
+    "shell_syntax": "passed",
+    "pulse_grid": {
+      "targets": 63,
+      "perfect_hits": 8,
+      "score": 1080,
+      "reward_virtual_coins": 5
+    },
+    "signal_clash": {
+      "rounds": 20
+    },
+    "static_release_preflight": "passed"
+  },
+  "apk_binary_compiled_in_this_environment": false,
+  "free_apk_build_script": "scripts/ubuntu_build_apk.sh"
+}

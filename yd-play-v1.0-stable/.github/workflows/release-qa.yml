@@ -1,0 +1,76 @@
+name: release-qa
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: ydplay
+          POSTGRES_USER: ydplay
+          POSTGRES_PASSWORD: ydplay_test
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U ydplay -d ydplay"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: [6379:6379]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://ydplay:ydplay_test@127.0.0.1:5432/ydplay
+      REDIS_URL: redis://127.0.0.1:6379
+      JWT_ACCESS_SECRET: test-access-secret-abcdefghijklmnopqrstuvwxyz
+      JWT_REFRESH_SECRET: test-refresh-secret-abcdefghijklmnopqrstuvwxyz
+      ADMIN_JWT_SECRET: test-admin-secret-abcdefghijklmnopqrstuvwxyz
+      ADMIN_API_KEY: test-bootstrap-admin-key-123456789
+      PUSH_TOKEN_ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+      CORS_ORIGIN: http://localhost:3002
+      REALTIME_ALLOWED_ORIGINS: http://localhost:3002
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm install --no-audit --no-fund
+      - run: npm run db:migrate
+      - run: npm test
+      - run: npm run build
+      - name: Start API and probe readiness
+        run: |
+          npm --workspace @ydplay/api run start > /tmp/yd-api.log 2>&1 &
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:3000/v1/health/ready; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/yd-api.log
+          exit 1
+
+  mobile-static:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test

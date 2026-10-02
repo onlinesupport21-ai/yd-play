@@ -1,0 +1,1157 @@
+openapi: 3.1.0
+info:
+  title: YD Play API
+  version: 1.0.0
+  description: 'Auth, virtual-wallet, referrals, anti-abuse, and the Pulse Grid authoritative single-player game milestone for YD Play. Coins are virtual, non-transferable, have no real-world cash value, and cannot be cashed out.
+
+
+    v0.5 adds read-only multiplayer room status endpoints. Realtime room mutations and gameplay use the authenticated WebSocket protocol documented in docs/REALTIME.md.
+
+
+    v0.9 adds missions, achievements, validated Pulse Grid leaderboards, authenticated analytics events, in-app notifications, provider-neutral push-device registration, campaign dispatch, and mobile safety/report history.
+
+    v1.0.0 adds release hardening, production configuration guards, and separate liveness/readiness health endpoints.'
+servers:
+- url: http://localhost:3000/v1
+paths:
+  /health:
+    get:
+      summary: Compatibility readiness health check
+      responses:
+        '200':
+          description: API and database ready
+        '503':
+          description: Dependency unavailable
+  /health/live:
+    get:
+      summary: Process liveness check
+      responses:
+        '200':
+          description: Process is alive
+  /health/ready:
+    get:
+      summary: Readiness check including PostgreSQL
+      responses:
+        '200':
+          description: Ready to receive traffic
+        '503':
+          description: Database unavailable
+  /auth/register:
+    post:
+      summary: Register, bind a device, create wallet, and grant idempotent signup reward
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '409':
+          description: Duplicate account or age-gate failure
+  /auth/login:
+    post:
+      summary: Login and create a refresh session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '201':
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid credentials or inactive account
+  /auth/refresh:
+    post:
+      summary: Rotate refresh token and session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - refreshToken
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        '201':
+          description: Rotated tokens
+        '401':
+          description: Invalid, expired, revoked, or replayed refresh token
+  /auth/logout:
+    post:
+      security:
+      - bearerAuth: []
+      summary: Revoke current session
+      responses:
+        '201':
+          description: Revoked
+  /auth/session:
+    get:
+      security:
+      - bearerAuth: []
+      summary: Return current authenticated session identifiers
+      responses:
+        '200':
+          description: Session
+  /users/me:
+    get:
+      security:
+      - bearerAuth: []
+      summary: Get current profile
+      responses:
+        '200':
+          description: Profile
+    patch:
+      security:
+      - bearerAuth: []
+      summary: Update display name, bio, or theme
+      responses:
+        '200':
+          description: Updated profile
+  /wallet:
+    get:
+      security:
+      - bearerAuth: []
+      summary: Read virtual coin balance
+      responses:
+        '200':
+          description: Wallet
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Wallet'
+  /wallet/transactions:
+    get:
+      security:
+      - bearerAuth: []
+      summary: Read authoritative coin transaction history
+      responses:
+        '200':
+          description: Transaction history
+  /referrals/me:
+    get:
+      security:
+      - bearerAuth: []
+      summary: Get referral code, reward configuration and current referral summary
+      responses:
+        '200':
+          description: Referral summary
+  /referrals/apply:
+    post:
+      security:
+      - bearerAuth: []
+      summary: Apply one referral code to the current account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApplyReferralRequest'
+      responses:
+        '201':
+          description: Referral created or evaluated
+        '404':
+          description: Referral code not found
+        '409':
+          description: Self-referral or attribution already exists
+  /referrals/evaluate:
+    post:
+      security:
+      - bearerAuth: []
+      summary: Re-evaluate the current account referral using server-side rules
+      responses:
+        '201':
+          description: Current referral status
+  /admin/referrals/config:
+    get:
+      summary: Read referral reward, cap and fraud configuration
+      parameters:
+      - $ref: '#/components/parameters/AdminApiKey'
+      responses:
+        '200':
+          description: Referral configuration
+        '401':
+          description: Invalid admin key
+    patch:
+      summary: Update referral reward, cap and fraud configuration
+      parameters:
+      - $ref: '#/components/parameters/AdminApiKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReferralConfigPatch'
+      responses:
+        '200':
+          description: Updated configuration
+  /admin/referrals/fraud-flags:
+    get:
+      summary: List referral abuse flags and evidence
+      parameters:
+      - $ref: '#/components/parameters/AdminApiKey'
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum:
+          - open
+          - reviewing
+          - confirmed
+          - dismissed
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      responses:
+        '200':
+          description: Fraud flag page
+  /admin/referrals/fraud-flags/{flagId}:
+    patch:
+      summary: Review a fraud flag
+      parameters:
+      - $ref: '#/components/parameters/AdminApiKey'
+      - name: flagId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewFlagRequest'
+      responses:
+        '200':
+          description: Updated fraud flag
+  /admin/referrals/{referralId}/decision:
+    patch:
+      summary: Approve or reject a referral after manual evidence review
+      parameters:
+      - $ref: '#/components/parameters/AdminApiKey'
+      - name: referralId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReferralDecisionRequest'
+      responses:
+        '200':
+          description: Referral decision result
+  /admin/referrals/overview:
+    get:
+      summary: Referral totals, review counts, rejected counts and granted coins
+      parameters:
+      - $ref: '#/components/parameters/AdminApiKey'
+      responses:
+        '200':
+          description: Referral overview
+  /games:
+    get:
+      security:
+      - bearerAuth: []
+      summary: List active games
+      responses:
+        '200':
+          description: Active games
+  /games/pulse-grid/sessions:
+    post:
+      security:
+      - bearerAuth: []
+      summary: Start an authoritative Pulse Grid session
+      responses:
+        '201':
+          description: Game session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GameSessionStart'
+  /games/sessions/{sessionId}:
+    get:
+      security:
+      - bearerAuth: []
+      summary: Get authoritative game-session state
+      parameters:
+      - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Game session state
+        '404':
+          description: Session not found
+  /games/sessions/{sessionId}/cues:
+    get:
+      security:
+      - bearerAuth: []
+      summary: Release only near-future Pulse Grid target cues
+      parameters:
+      - $ref: '#/components/parameters/SessionId'
+      - name: after
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: -1
+          default: -1
+      responses:
+        '200':
+          description: Short look-ahead cue window
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GameCueBatch'
+  /games/sessions/{sessionId}/input:
+    post:
+      security:
+      - bearerAuth: []
+      summary: Submit one ordered player input for server validation
+      parameters:
+      - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GameInputRequest'
+      responses:
+        '201':
+          description: Input accepted and authoritative score returned
+        '409':
+          description: Stale sequence, future input, late input, or inactive session
+  /games/sessions/{sessionId}/complete:
+    post:
+      security:
+      - bearerAuth: []
+      summary: Replay-validate and finalize a game, then grant an idempotent virtual-coin reward
+      parameters:
+      - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GameCompleteRequest'
+      responses:
+        '201':
+          description: Authoritative result and reward status
+        '409':
+          description: Game is still in progress or cannot be completed
+  /rooms/me/active:
+    get:
+      tags:
+      - Rooms
+      summary: Get the current user active multiplayer room
+      operationId: getActiveRoom
+      responses:
+        '200':
+          description: Active room or null
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /rooms/{roomId}:
+    get:
+      tags:
+      - Rooms
+      summary: Get a multiplayer room if the caller is a member
+      operationId: getRoom
+      parameters:
+      - name: roomId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Room state and validated result when complete
+        '403':
+          description: Caller is not a room member
+        '404':
+          description: Room not found
+  /admin/auth/login:
+    post:
+      tags:
+      - Admin
+      security: []
+      summary: Login with a named admin account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - email
+              - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 10
+      responses:
+        '201':
+          description: Admin access token
+        '401':
+          description: Invalid credentials
+  /admin/auth/logout:
+    post:
+      tags:
+      - Admin
+      summary: Revoke the current admin session
+      responses:
+        '201':
+          description: Session revoked
+  /admin/me:
+    get:
+      tags:
+      - Admin
+      summary: Current admin identity and role
+      responses:
+        '200':
+          description: Admin profile
+  /admin/dashboard:
+    get:
+      tags:
+      - Admin
+      summary: Operations dashboard metrics
+      responses:
+        '200':
+          description: User, game, referral, moderation, economy and retention metrics
+  /admin/users:
+    get:
+      tags:
+      - Admin
+      summary: Search users
+      parameters:
+      - name: q
+        in: query
+        schema:
+          type: string
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      responses:
+        '200':
+          description: Users
+  /admin/users/{userId}:
+    get:
+      tags:
+      - Admin
+      summary: Get user operations detail
+      parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: User detail
+  /admin/users/{userId}/status:
+    patch:
+      tags:
+      - Admin
+      summary: Suspend, ban or reactivate a user
+      parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - status
+              - reason
+              properties:
+                status:
+                  type: string
+                  enum:
+                  - active
+                  - suspended
+                  - banned
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: Updated and audit logged
+  /admin/users/{userId}/coins:
+    post:
+      tags:
+      - Admin
+      summary: Audited virtual-coin adjustment through the balanced ledger
+      parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - direction
+              - amount
+              - reason
+              properties:
+                direction:
+                  type: string
+                  enum:
+                  - credit
+                  - debit
+                amount:
+                  type: integer
+                  minimum: 1
+                  maximum: 1000000
+                reason:
+                  type: string
+      responses:
+        '201':
+          description: Ledger transaction and new wallet balance
+  /admin/economy:
+    get:
+      tags:
+      - Admin
+      summary: Virtual coin supply, sources and sinks
+      responses:
+        '200':
+          description: Economy metrics
+  /admin/moderation/reports:
+    get:
+      tags:
+      - Admin
+      summary: Moderation report queue
+      responses:
+        '200':
+          description: Reports
+  /admin/moderation/reports/{reportId}:
+    patch:
+      tags:
+      - Admin
+      summary: Review or resolve a moderation report
+      parameters:
+      - name: reportId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Updated report
+  /admin/fraud/flags:
+    get:
+      tags:
+      - Admin
+      summary: Referral abuse flag queue
+      responses:
+        '200':
+          description: Fraud flags
+  /admin/fraud/flags/{flagId}:
+    patch:
+      tags:
+      - Admin
+      summary: Review a referral abuse flag
+      parameters:
+      - name: flagId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Updated flag
+  /admin/push-campaigns:
+    get:
+      tags:
+      - Admin
+      summary: List push campaigns
+      responses:
+        '200':
+          description: Campaigns
+    post:
+      tags:
+      - Admin
+      summary: Create or schedule a push campaign
+      responses:
+        '201':
+          description: Campaign stored
+  /admin/audit-logs:
+    get:
+      tags:
+      - Admin
+      summary: List admin audit events
+      responses:
+        '200':
+          description: Audit events
+  /reports:
+    post:
+      tags:
+      - Reports
+      summary: Submit an authenticated moderation report
+      responses:
+        '201':
+          description: Report created
+  /missions:
+    get:
+      security: &id001
+      - bearerAuth: []
+      summary: List active missions and current user progress
+      responses:
+        '200':
+          description: OK
+  /missions/{missionId}/claim:
+    post:
+      security: *id001
+      summary: Claim a completed mission reward idempotently
+      responses:
+        '200':
+          description: OK
+      parameters:
+      - name: missionId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+  /achievements:
+    get:
+      security: *id001
+      summary: List achievements and unlock/claim state
+      responses:
+        '200':
+          description: OK
+  /achievements/{achievementId}/claim:
+    post:
+      security: *id001
+      summary: Claim an unlocked achievement reward idempotently
+      responses:
+        '200':
+          description: OK
+      parameters:
+      - name: achievementId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+  /leaderboards/{code}:
+    get:
+      security: *id001
+      summary: Read server-validated leaderboard entries
+      responses:
+        '200':
+          description: OK
+      parameters:
+      - name: code
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+  /analytics/events:
+    post:
+      security: *id001
+      summary: Ingest up to 50 authenticated analytics events with per-user event-id deduplication
+      responses:
+        '200':
+          description: OK
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - events
+              properties:
+                events:
+                  type: array
+                  maxItems: 50
+                  items:
+                    type: object
+                    required:
+                    - eventId
+                    - eventName
+                    - occurredAt
+                    properties:
+                      eventId:
+                        type: string
+                      eventName:
+                        type: string
+                      occurredAt:
+                        type: string
+                        format: date-time
+                      platform:
+                        type: string
+                      appVersion:
+                        type: string
+                      properties:
+                        type: object
+                        additionalProperties: true
+  /notifications:
+    get:
+      security: *id001
+      summary: List in-app notifications and unread count
+      responses:
+        '200':
+          description: OK
+  /notifications/{id}/read:
+    post:
+      security: *id001
+      summary: Mark an in-app notification read
+      responses:
+        '200':
+          description: OK
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+  /notifications/devices:
+    post:
+      security: *id001
+      summary: Register or refresh an encrypted push-device token
+      responses:
+        '200':
+          description: OK
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - token
+              - provider
+              - platform
+              properties:
+                token:
+                  type: string
+                provider:
+                  type: string
+                platform:
+                  type: string
+                  enum:
+                  - android
+                  - ios
+                  - web
+                appVersion:
+                  type: string
+  /notifications/devices/unregister:
+    post:
+      security: *id001
+      summary: Disable a push-device token
+      responses:
+        '200':
+          description: OK
+  /reports/me:
+    get:
+      security: *id001
+      summary: List moderation reports submitted by the current user
+      responses:
+        '200':
+          description: OK
+  /admin/analytics/events:
+    get:
+      security: *id001
+      summary: Summarize analytics event counts and unique users
+      responses:
+        '200':
+          description: OK
+  /admin/push-campaigns/{campaignId}/dispatch:
+    post:
+      security: *id001
+      summary: Create in-app notifications and optionally dispatch external push delivery
+      responses:
+        '200':
+          description: OK
+      parameters:
+      - name: campaignId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    AdminApiKey:
+      name: X-Admin-Api-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 24
+      description: Temporary bootstrap admin credential for v0.3; replace with named admin MFA/RBAC.
+    SessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    ApplyReferralRequest:
+      type: object
+      required:
+      - code
+      properties:
+        code:
+          type: string
+          minLength: 4
+          maxLength: 20
+          pattern: ^[A-Za-z0-9]+$
+    ReferralConfigPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        inviterReward:
+          type: integer
+          minimum: 0
+        inviteeReward:
+          type: integer
+          minimum: 0
+        dailyInviterRewardCap:
+          type: integer
+          minimum: 0
+        lifetimeInviterRewardCap:
+          type: integer
+          minimum: 0
+        minAccountAgeMinutes:
+          type: integer
+          minimum: 0
+        maxInvitesPerHour:
+          type: integer
+          minimum: 1
+        sameDeviceRisk:
+          type: integer
+          minimum: 0
+          maximum: 100
+        sameIpRisk:
+          type: integer
+          minimum: 0
+          maximum: 100
+        ipVelocityRisk:
+          type: integer
+          minimum: 0
+          maximum: 100
+        deviceMultiAccountRisk:
+          type: integer
+          minimum: 0
+          maximum: 100
+        inviterVelocityRisk:
+          type: integer
+          minimum: 0
+          maximum: 100
+        reviewThreshold:
+          type: integer
+          minimum: 0
+          maximum: 100
+        blockThreshold:
+          type: integer
+          minimum: 0
+          maximum: 100
+    ReviewFlagRequest:
+      type: object
+      required:
+      - status
+      properties:
+        status:
+          type: string
+          enum:
+          - reviewing
+          - confirmed
+          - dismissed
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 300
+    ReferralDecisionRequest:
+      type: object
+      required:
+      - decision
+      - reason
+      properties:
+        decision:
+          type: string
+          enum:
+          - approve
+          - reject
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 300
+    RegisterRequest:
+      type: object
+      required:
+      - username
+      - displayName
+      - password
+      - platform
+      - deviceProof
+      - ageGateAccepted
+      properties:
+        email:
+          type: string
+          format: email
+        username:
+          type: string
+          minLength: 3
+          maxLength: 24
+          pattern: ^[a-zA-Z0-9_]+$
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 40
+        password:
+          type: string
+          minLength: 10
+        platform:
+          type: string
+          enum:
+          - android
+          - ios
+          - web
+        deviceProof:
+          type: string
+          minLength: 4
+          maxLength: 256
+        appVersion:
+          type: string
+        referralCode:
+          type: string
+          minLength: 4
+          maxLength: 20
+          pattern: ^[A-Za-z0-9]+$
+        ageGateAccepted:
+          type: boolean
+          const: true
+    LoginRequest:
+      type: object
+      required:
+      - identifier
+      - password
+      - platform
+      - deviceProof
+      properties:
+        identifier:
+          type: string
+        password:
+          type: string
+          minLength: 10
+        platform:
+          type: string
+          enum:
+          - android
+          - ios
+          - web
+        deviceProof:
+          type: string
+        appVersion:
+          type: string
+    AuthResponse:
+      type: object
+      required:
+      - accessToken
+      - refreshToken
+      - user
+      - wallet
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        user:
+          type: object
+          additionalProperties: true
+        wallet:
+          $ref: '#/components/schemas/Wallet'
+    Wallet:
+      type: object
+      required:
+      - currencyCode
+      - balance
+      - cashValue
+      - transferable
+      - cashOut
+      properties:
+        currencyCode:
+          type: string
+          const: COIN
+        balance:
+          type: string
+          description: Integer string to preserve BIGINT precision across clients
+        cashValue:
+          type: integer
+          const: 0
+        transferable:
+          type: boolean
+          const: false
+        cashOut:
+          type: boolean
+          const: false
+    PulseTarget:
+      type: object
+      required:
+      - index
+      - timeMs
+      - lane
+      properties:
+        index:
+          type: integer
+          minimum: 0
+        timeMs:
+          type: integer
+          minimum: 0
+        lane:
+          type: integer
+          minimum: 0
+          maximum: 3
+    GameSessionStart:
+      type: object
+      required:
+      - id
+      - game
+      - status
+      - startedAt
+      - serverNow
+      - durationMs
+      - hitWindowMs
+      - lanes
+      - cueLookaheadMs
+      - scheduleHash
+      properties:
+        id:
+          type: string
+          format: uuid
+        game:
+          type: object
+          additionalProperties: true
+        status:
+          type: string
+          const: active
+        startedAt:
+          type: string
+          format: date-time
+        serverNow:
+          type: string
+          format: date-time
+        durationMs:
+          type: integer
+          const: 45000
+        hitWindowMs:
+          type: integer
+        lanes:
+          type: integer
+          const: 4
+        cueLookaheadMs:
+          type: integer
+          const: 1200
+        scheduleHash:
+          type: string
+        disclaimer:
+          type: string
+    GameCueBatch:
+      type: object
+      required:
+      - items
+      - serverNow
+      - serverElapsedMs
+      - releaseThroughMs
+      - scheduleHash
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PulseTarget'
+        serverNow:
+          type: string
+          format: date-time
+        serverElapsedMs:
+          type: integer
+          minimum: 0
+        releaseThroughMs:
+          type: integer
+          minimum: 0
+        scheduleHash:
+          type: string
+    GameInputRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - seq
+      - elapsedMs
+      - lane
+      properties:
+        seq:
+          type: integer
+          minimum: 1
+        elapsedMs:
+          type: integer
+          minimum: 0
+          maximum: 120000
+        lane:
+          type: integer
+          minimum: 0
+          maximum: 3
+    GameCompleteRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        claimedScore:
+          type: integer
+          minimum: 0
+          description: Optional client display score. Server score remains authoritative even when this differs.
+tags:
+- name: Rooms

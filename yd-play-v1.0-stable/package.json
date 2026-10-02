@@ -1,0 +1,23 @@
+{
+  "name": "yd-play",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "services/*",
+    "packages/*",
+    "apps/admin"
+  ],
+  "scripts": {
+    "dev:api": "npm --workspace @ydplay/api run start:dev",
+    "dev:realtime": "npm --workspace @ydplay/realtime run dev",
+    "build:api": "npm --workspace @ydplay/api run build",
+    "build:realtime": "npm --workspace @ydplay/realtime run build",
+    "build": "npm run build:api && npm run build:realtime && npm run build:admin",
+    "test:api": "npm --workspace @ydplay/api run test",
+    "test:realtime": "npm --workspace @ydplay/realtime run test",
+    "test": "npm run test:api && npm run test:realtime",
+    "db:migrate": "npm --workspace @ydplay/api run db:migrate",
+    "dev:admin": "npm --workspace @ydplay/admin run dev",
+    "build:admin": "npm --workspace @ydplay/admin run build"
+  }
+}

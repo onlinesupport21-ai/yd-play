@@ -1,0 +1,107 @@
+name: mobile-apk
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: Production API URL
+        required: false
+        default: ''
+      ws_url:
+        description: Production WebSocket URL
+        required: false
+        default: ''
+  push:
+    branches: [main]
+    paths:
+      - 'apps/mobile/**'
+      - '.github/workflows/mobile-apk.yml'
+  pull_request:
+    paths:
+      - 'apps/mobile/**'
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Flutter version
+        run: flutter --version
+      - name: Generate Android wrapper if missing
+        run: ./tool/prepare_android.sh
+      - name: Dependencies
+        run: flutter pub get
+      - name: Analyze
+        run: flutter analyze
+      - name: Tests
+        run: flutter test
+      - name: Build installable debug APK
+        env:
+          API_URL: ${{ github.event.inputs.api_url }}
+          WS_URL: ${{ github.event.inputs.ws_url }}
+        run: |
+          API_URL="${API_URL:-http://10.0.2.2:3000/v1}"
+          WS_URL="${WS_URL:-ws://10.0.2.2:3001/ws}"
+          flutter build apk --debug \
+            --dart-define=YD_API_URL="$API_URL" \
+            --dart-define=YD_WS_URL="$WS_URL"
+          sha256sum build/app/outputs/flutter-apk/app-debug.apk > build/app/outputs/flutter-apk/app-debug.apk.sha256
+      - name: Configure release signing when secrets are available
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "Production signing secrets not configured; skipping signed release APK."
+            exit 0
+          fi
+          echo "$KEYSTORE_B64" | base64 --decode > android/app/ydplay-upload-keystore.jks
+          cat > android/key.properties <<EOF
+          storePassword=$STORE_PASSWORD
+          keyPassword=$KEY_PASSWORD
+          keyAlias=$KEY_ALIAS
+          storeFile=ydplay-upload-keystore.jks
+          EOF
+      - name: Build signed release APK when configured
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          API_URL: ${{ github.event.inputs.api_url }}
+          WS_URL: ${{ github.event.inputs.ws_url }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then exit 0; fi
+          if [ -z "$API_URL" ] || [ -z "$WS_URL" ]; then
+            echo "Signed release skipped: workflow_dispatch must provide production api_url and ws_url."
+            exit 0
+          fi
+          if [[ "$API_URL" != https://* ]] || [[ "$WS_URL" != wss://* ]]; then
+            echo "Signed release requires HTTPS API and WSS realtime endpoints." >&2
+            exit 2
+          fi
+          if [[ "$API_URL" == *localhost* || "$API_URL" == *10.0.2.2* || "$WS_URL" == *localhost* || "$WS_URL" == *10.0.2.2* ]]; then
+            echo "Signed release cannot use local/emulator endpoints." >&2
+            exit 2
+          fi
+          flutter build apk --release \
+            --dart-define=YD_API_URL="$API_URL" \
+            --dart-define=YD_WS_URL="$WS_URL"
+          sha256sum build/app/outputs/flutter-apk/app-release.apk > build/app/outputs/flutter-apk/app-release.apk.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yd-play-android-apk
+          path: |
+            apps/mobile/build/app/outputs/flutter-apk/*.apk
+            apps/mobile/build/app/outputs/flutter-apk/*.sha256
+          if-no-files-found: error

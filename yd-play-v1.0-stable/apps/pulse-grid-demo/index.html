@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>YD Play — Pulse Grid Dev Client</title>
+  <style>
+    :root{color-scheme:dark;background:#0c1018;color:#eef3ff;font-family:system-ui,sans-serif}
+    body{max-width:760px;margin:auto;padding:24px}.card{background:#141b28;border:1px solid #27324a;border-radius:20px;padding:18px;margin:14px 0}
+    input,button{font:inherit}input{width:100%;box-sizing:border-box;padding:12px;border-radius:10px;border:1px solid #39455e;background:#0c1018;color:#fff;margin:6px 0 12px}
+    button{border:0;border-radius:14px;padding:14px;cursor:pointer}.start{width:100%;font-weight:700}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+    .lane{height:150px;font-size:28px;font-weight:800;background:#222c42;color:#fff}.lane.active{outline:4px solid #fff;transform:translateY(-3px)}
+    .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.stat{background:#0c1018;padding:10px;border-radius:10px;text-align:center}
+    small{opacity:.75}pre{white-space:pre-wrap;word-break:break-word;max-height:220px;overflow:auto}
+  </style>
+</head>
+<body>
+  <h1>Pulse Grid</h1>
+  <p>Development client for the server-authoritative YD Play game. Virtual coins have no cash value.</p>
+  <div class="card">
+    <label>API base</label><input id="api" value="http://localhost:3000/v1" />
+    <label>Bearer access token</label><input id="token" placeholder="Paste access token from /auth/login" />
+    <button class="start" id="start">Start 45s Game</button>
+  </div>
+  <div class="card">
+    <div class="stats"><div class="stat">Time<br><b id="time">45.0</b></div><div class="stat">Score<br><b id="score">0</b></div><div class="stat">Combo<br><b id="combo">0</b></div></div>
+  </div>
+  <div class="grid" id="grid">
+    <button class="lane" data-lane="0">1</button><button class="lane" data-lane="1">2</button><button class="lane" data-lane="2">3</button><button class="lane" data-lane="3">4</button>
+  </div>
+  <div class="card"><small>Server response</small><pre id="log">Ready.</pre></div>
+<script>
+let session=null,seq=0,offset=0,timer=null,cuePoll=null,targetTimers=[],lastCue=-1;
+const $=id=>document.getElementById(id); const log=x=>$('log').textContent=JSON.stringify(x,null,2);
+function auth(){return {'Content-Type':'application/json','Authorization':'Bearer '+$('token').value.trim()}}
+async function start(){
+  clearInterval(timer);clearInterval(cuePoll);targetTimers.forEach(clearTimeout);targetTimers=[];seq=0;lastCue=-1;$('score').textContent='0';$('combo').textContent='0';
+  const r=await fetch($('api').value+'/games/pulse-grid/sessions',{method:'POST',headers:auth()}); const d=await r.json(); if(!r.ok){log(d);return}
+  session=d; offset=new Date(d.serverNow).getTime()-Date.now(); log(d); await pollCues();
+  cuePoll=setInterval(()=>pollCues().catch(e=>log({error:String(e)})),250); timer=setInterval(tick,50); tick();
+}
+function elapsed(){return Math.max(0,Math.round(Date.now()+offset-new Date(session.startedAt).getTime()))}
+async function pollCues(){if(!session)return;const r=await fetch($('api').value+`/games/sessions/${session.id}/cues?after=${lastCue}`,{headers:auth()});const d=await r.json();if(!r.ok){log(d);return}offset=new Date(d.serverNow).getTime()-Date.now();for(const t of d.items){lastCue=Math.max(lastCue,t.index);const delay=Math.max(0,new Date(session.startedAt).getTime()+t.timeMs-(Date.now()+offset));targetTimers.push(setTimeout(()=>flash(t.lane),delay));}}
+function flash(lane){const b=document.querySelector(`[data-lane="${lane}"]`);b.classList.add('active');setTimeout(()=>b.classList.remove('active'),230)}
+async function tap(lane){if(!session)return;const body={seq:++seq,elapsedMs:elapsed(),lane}; const r=await fetch($('api').value+`/games/sessions/${session.id}/input`,{method:'POST',headers:auth(),body:JSON.stringify(body)}); const d=await r.json();if(!r.ok){seq--;log(d);return}$('score').textContent=d.score;$('combo').textContent=d.combo;log(d)}
+async function tick(){if(!session)return;const left=Math.max(0,session.durationMs-elapsed());$('time').textContent=(left/1000).toFixed(1);if(left===0){clearInterval(timer);clearInterval(cuePoll);timer=null;cuePoll=null;const r=await fetch($('api').value+`/games/sessions/${session.id}/complete`,{method:'POST',headers:auth(),body:JSON.stringify({claimedScore:Number($('score').textContent)})});log(await r.json());session=null}}
+$('start').onclick=()=>start().catch(e=>log({error:String(e)}));document.querySelectorAll('.lane').forEach(b=>b.onclick=()=>tap(Number(b.dataset.lane)).catch(e=>log({error:String(e)})));
+</script>
+</body>
+</html>

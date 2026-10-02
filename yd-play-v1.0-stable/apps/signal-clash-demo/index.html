@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>YD Play — Signal Clash Dev Client</title>
+<style>
+body{font-family:system-ui,sans-serif;background:#0b1020;color:#eef2ff;margin:0;padding:24px}.wrap{max-width:760px;margin:auto}.card{background:#151c32;border:1px solid #2d3658;border-radius:16px;padding:18px;margin:14px 0}input,button{font:inherit;border-radius:10px;padding:11px;border:1px solid #465173;background:#0d1429;color:#fff}input{width:100%;box-sizing:border-box;margin:6px 0}button{cursor:pointer}.row{display:flex;gap:8px;flex-wrap:wrap}.lane{font-size:24px;min-width:90px;min-height:70px}.target{outline:3px solid #fff}.muted{opacity:.72}.log{height:230px;overflow:auto;white-space:pre-wrap;background:#080d1a;padding:10px;border-radius:10px;font-size:12px}.score{font-size:22px;font-weight:700}
+</style>
+</head>
+<body><div class="wrap">
+<h1>Signal Clash <span class="muted">v0.5 dev client</span></h1>
+<div class="card">
+<label>Realtime URL</label><input id="url" value="ws://localhost:3001/ws" />
+<label>Access token</label><input id="token" placeholder="Paste accessToken from /v1/auth/login" />
+<div class="row"><button id="connect">Connect</button><button id="queue">Join Matchmaking</button><button id="private">Create Private</button></div>
+<div class="row"><input id="code" placeholder="6-character private code" style="max-width:220px"><button id="join">Join Private</button><button id="leave">Leave Room</button></div>
+</div>
+<div class="card"><div id="status">Disconnected</div><div id="room" class="muted"></div><div id="score" class="score"></div></div>
+<div class="card"><div id="round">Waiting for round…</div><div class="row" id="lanes"></div></div>
+<div class="card"><div class="log" id="log"></div></div>
+</div>
+<script>
+let ws, roomId=null, seq=0, currentRound=null;
+const log=(x)=>{const e=document.getElementById('log');e.textContent+=`${new Date().toLocaleTimeString()} ${x}\n`;e.scrollTop=e.scrollHeight};
+const send=(x)=>{if(ws?.readyState===1)ws.send(JSON.stringify(x));};
+const setRoom=(room)=>{if(!room)return;roomId=room.id;document.getElementById('room').textContent=`Room ${room.id} ${room.joinCode?`• Code ${room.joinCode}`:''} • ${room.status}`;updateScore(room.players||[])};
+const updateScore=(players)=>{document.getElementById('score').textContent=players.map(p=>`Seat ${p.seatNo}: ${p.score}`).join('  |  ')};
+for(let i=0;i<4;i++){const b=document.createElement('button');b.className='lane';b.textContent=String(i+1);b.onclick=()=>{if(roomId&&currentRound)send({type:'game.input',roomId,roundNo:currentRound,lane:i,seq:++seq})};document.getElementById('lanes').appendChild(b)}
+function highlight(lane){[...document.querySelectorAll('.lane')].forEach((b,i)=>b.classList.toggle('target',i===lane));setTimeout(()=>document.querySelectorAll('.lane').forEach(b=>b.classList.remove('target')),700)}
+document.getElementById('connect').onclick=()=>{ws=new WebSocket(document.getElementById('url').value);ws.onopen=()=>{document.getElementById('status').textContent='Connected; authenticating…';send({type:'auth',token:document.getElementById('token').value})};ws.onclose=(e)=>document.getElementById('status').textContent=`Closed ${e.code}`;ws.onmessage=(ev)=>{const m=JSON.parse(ev.data);log(JSON.stringify(m));if(m.type==='auth.ok')document.getElementById('status').textContent=`Authenticated ${m.userId}`;if(m.room)setRoom(m.room);if(m.type==='room.resume')setRoom(m.room);if(m.type==='game.round'){roomId=m.roomId;currentRound=m.roundNo;document.getElementById('round').textContent=`Round ${m.roundNo} — lane ${m.targetLane+1}`;highlight(m.targetLane)}if(m.type==='game.scoreboard')updateScore(m.players);if(m.type==='game.completed'){currentRound=null;document.getElementById('round').textContent=m.outcome?.kind==='tie'?'Tie':`Winner: ${m.outcome?.winnerUserId}`;}}};
+document.getElementById('queue').onclick=()=>send({type:'queue.join'});document.getElementById('private').onclick=()=>send({type:'room.create_private'});document.getElementById('join').onclick=()=>send({type:'room.join_private',code:document.getElementById('code').value.toUpperCase()});document.getElementById('leave').onclick=()=>send({type:'room.leave'});
+</script></body></html>
