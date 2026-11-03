@@ -36,11 +36,11 @@ public class MainActivity extends Activity {
         root.setGravity(Gravity.CENTER_HORIZONTAL);
         scroll.addView(root);
 
-        TextView title = text("MASTER BOT OVERLAY v1.1 BETA", 25, Color.rgb(20, 90, 52));
+        TextView title = text("MASTER BOT • GAME BRAIN", 25, Color.rgb(20, 90, 52));
         title.setGravity(Gravity.CENTER);
         root.addView(title, matchWrap());
 
-        TextView intro = text("Companion overlay for your own/demo Rummy APK. Auto Scan uses on-device OCR for recommendations; it does not secretly auto-click or hide bot activity.", 15, Color.DKGRAY);
+        TextView intro = text("Recommendation companion for your own/demo Rummy APK. Live Scan stabilizes repeated on-device observations, tracks visible table changes and shows one clear next action. It never auto-clicks the game.", 15, Color.DKGRAY);
         intro.setPadding(0, dp(12), 0, dp(18));
         root.addView(intro, matchWrap());
 
@@ -55,13 +55,14 @@ public class MainActivity extends Activity {
         root.addView(button("Stop overlay", v -> stopOverlay()), matchWrapTop());
 
         TextView help = text(
-                "Auto Scan beta\n"
-                + "1. Start Screen Capture and Master overlay.\n"
+                "How to use Game Brain\n"
+                + "1. Grant Screen Capture and start the Master overlay.\n"
                 + "2. Open your Rummy game and tap the green M.\n"
-                + "3. Tap Auto Scan (beta). The overlay hides itself for a clean frame, reads visible card labels locally on your phone, then fills the fields.\n"
-                + "4. If all 13/14 hand cards and Joker are trustworthy, Master advice runs automatically. Otherwise correct the fields and tap Analyze.\n\n"
-                + "Manual format\nHand: AS,2S,3S,10H,JH,QH,...\nJoker rank: A / 2 ... K\nOpen card: 4S\nOpponent move: P2 PICK 8H or P2 DISCARD 9H\n\n"
-                + "Recognition is beta: game skins with tiny/stylized card text or secure/blocked screenshots can require manual correction and later per-game calibration.",
+                + "3. Turn Live Scan ON. The large panel closes so it does not cover your cards.\n"
+                + "4. A compact top-left pill shows: PICK OPEN, DRAW CLOSED, DISCARD, WATCHING TABLE, or SCAN UNCERTAIN.\n"
+                + "5. Tap the pill to pause Live Scan and open Why? details such as scan confidence, known/unseen cards and danger signals.\n\n"
+                + "Trust rule\nThe app waits for repeated compatible scans. If the hand/Joker/open-card state is not trustworthy it says SCAN UNCERTAIN — DON'T ACT instead of guessing.\n\n"
+                + "Manual fallback remains under Manual if a stylized card cannot be read.",
                 14,
                 Color.DKGRAY);
         help.setPadding(0, dp(22), 0, 0);
@@ -84,7 +85,7 @@ public class MainActivity extends Activity {
         if (!Settings.canDrawOverlays(this)) { toast("Grant overlay permission first"); requestOverlay(); return; }
         Intent i = new Intent(this, OverlayService.class);
         if (Build.VERSION.SDK_INT >= 26) startForegroundService(i); else startService(i);
-        status.setText("Master overlay started. Open your game, tap the green M, then Auto Scan.");
+        status.setText("Master overlay started. Open your game, tap M, then turn Live Scan ON.");
     }
 
     private void stopOverlay() {
@@ -101,9 +102,9 @@ public class MainActivity extends Activity {
                 svc.putExtra(CaptureService.EXTRA_RESULT_CODE, resultCode);
                 svc.putExtra(CaptureService.EXTRA_RESULT_DATA, data);
                 if (Build.VERSION.SDK_INT >= 26) startForegroundService(svc); else startService(svc);
-                status.setText("Screen capture active. Start overlay, open your game, then use Auto Scan.");
+                status.setText("Screen capture active. Start the overlay, open your game and turn Live Scan ON.");
             } else {
-                status.setText("Screen capture permission was not granted. Manual overlay still works.");
+                status.setText("Screen capture permission was not granted. Manual fallback still works.");
             }
         } else if (requestCode == REQ_OVERLAY) {
             refreshStatus();
