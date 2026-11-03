@@ -54,8 +54,11 @@ public final class ScreenOcrScanner implements AutoCloseable {
             GoldRummyBitmapVision.HandLayout layout,
             Callback callback
     ) {
-        GoldRummyRoiLayout rois = GoldRummyRoiLayout.forFrame(width, height);
-        Bitmap activity = crop(bitmap, rois.opponentActivity());
+        // Use the narrow turn-banner ROI first. The whole table is OCR'd only
+        // if pixel hand calibration fails, keeping normal scans quick and quiet.
+        GoldRummyRois.Box turn = GoldRummyRois.forFrame(GoldRummyRois.Zone.TURN,width,height);
+        Bitmap activity = Bitmap.createBitmap(bitmap,
+                turn.left(),turn.top(),turn.width(),turn.height());
         recognizer.process(InputImage.fromBitmap(activity, 0))
                 .addOnSuccessListener(activityText -> {
                     activity.recycle();
@@ -128,15 +131,6 @@ public final class ScreenOcrScanner implements AutoCloseable {
                     String message = error.getMessage();
                     callback.onError("OCR failed" + (message == null || message.isBlank() ? "" : ": " + message));
                 });
-    }
-
-    private static Bitmap crop(Bitmap source, GoldRummyRoiLayout.Zone zone) {
-        return Bitmap.createBitmap(
-                source,
-                zone.left(),
-                zone.top(),
-                zone.right() - zone.left(),
-                zone.bottom() - zone.top());
     }
 
     private static AutoScanResult buildCalibratedResult(
