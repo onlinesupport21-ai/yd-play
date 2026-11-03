@@ -20,10 +20,35 @@ public final class GoldRummyHandGeometry {
     }
 
     /**
-     * Non-maximum suppression over vertical-edge candidates. Overlapped cards on this skin are
-     * separated by roughly 4% of screen width; artwork/noise peaks usually occur within 3% of a
-     * real left edge. A genuine left edge must also have a mostly-white card body immediately to
-     * its right, which rejects group-gap borders that were visible in the user's screenshot.
+     * Scores a vertical boundary across many sampled rows. A real overlapped card edge persists
+     * down the card, while rank/artwork edges are sparse. rightWhiteFraction[i] is the fraction
+     * of neutral-white pixels immediately to the right of the candidate in that sampled row.
+     */
+    public static double boundaryScore(int[] leftLuma, int[] rightLuma, double[] rightWhiteFraction) {
+        if (leftLuma == null || rightLuma == null || rightWhiteFraction == null) return 0.0;
+        int n = Math.min(leftLuma.length, Math.min(rightLuma.length, rightWhiteFraction.length));
+        if (n == 0) return 0.0;
+
+        int persistent = 0;
+        double maskedDiff = 0.0;
+        for (int i = 0; i < n; i++) {
+            int diff = Math.abs(rightLuma[i] - leftLuma[i]);
+            boolean whiteToRight = rightWhiteFraction[i] >= 0.60;
+            if (whiteToRight) {
+                maskedDiff += diff;
+                if (diff >= 25) persistent++;
+            }
+        }
+        double persistence = persistent / (double) n;
+        double meanMaskedDiff = maskedDiff / n;
+        return persistence * 100.0 + meanMaskedDiff * 0.25;
+    }
+
+    /**
+     * Non-maximum suppression over persistent boundary candidates. Overlapped cards on this skin
+     * are separated by roughly 4% of screen width; artwork/noise peaks usually occur within 3% of
+     * a real left edge. A genuine left edge must also have a mostly-white card body immediately to
+     * its right, which rejects group-gap borders and UI artwork.
      */
     public static List<Integer> selectStarts(int width, List<Candidate> candidates, int expectedCount) {
         if (width <= 0 || candidates == null || candidates.isEmpty()) return List.of();
