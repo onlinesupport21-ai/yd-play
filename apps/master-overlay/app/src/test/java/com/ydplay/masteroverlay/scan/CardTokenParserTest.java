@@ -29,4 +29,15 @@ public class CardTokenParserTest {
         List<String> cards = CardTokenParser.extractCardCodes("A♠  10H  Q D  AS  JOKER  table  7c");
         assertEquals(List.of("AS", "10H", "QD", "AS", "PJ", "7C"), cards);
     }
+
+    @Test public void extractsRankFromSmallCardCropOcr() {
+        assertEquals("2", CardTokenParser.extractRank("2"));
+        assertEquals("10", CardTokenParser.extractRank("10"));
+        assertEquals("10", CardTokenParser.extractRank("I0"));
+        assertEquals("J", CardTokenParser.extractRank("J\n♠"));
+        assertEquals("Q", CardTokenParser.extractRank("Q"));
+        assertEquals("K", CardTokenParser.extractRank("K"));
+        assertEquals("PJ", CardTokenParser.extractRank("J O K E R S"));
+        assertNull(CardTokenParser.extractRank("POINTS 52"));
+    }
 }
