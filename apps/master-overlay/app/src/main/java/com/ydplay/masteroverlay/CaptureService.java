@@ -28,6 +28,9 @@ public class CaptureService extends Service {
     public static final String EXTRA_RESULT_DATA = "resultData";
     private static final AtomicBoolean SNAPSHOT_REQUESTED = new AtomicBoolean(false);
     private static final AtomicLong SNAPSHOT_VERSION = new AtomicLong(0);
+    private static final AtomicLong SNAPSHOT_REQUEST_SEQUENCE = new AtomicLong(0);
+    private static final Handler SNAPSHOT_HANDLER = new Handler(Looper.getMainLooper());
+    private static final long SNAPSHOT_SETTLE_MS = 180L;
     private static volatile String publicStatus = "inactive";
 
     private final Object captureLock = new Object();
@@ -42,7 +45,16 @@ public class CaptureService extends Service {
     public static String getPublicStatus() { return publicStatus; }
     public static long getLatestSnapshotVersion() { return SNAPSHOT_VERSION.get(); }
     public static File getLatestSnapshotFile(Context context) { return new File(context.getCacheDir(), "master_snapshot.png"); }
-    public static void requestSnapshot() { SNAPSHOT_REQUESTED.set(true); publicStatus = "snapshot requested"; }
+    public static void requestSnapshot() {
+        long ticket = SNAPSHOT_REQUEST_SEQUENCE.incrementAndGet();
+        SNAPSHOT_REQUESTED.set(false);
+        publicStatus = "snapshot settling";
+        SNAPSHOT_HANDLER.postDelayed(() -> {
+            if (SNAPSHOT_REQUEST_SEQUENCE.get() != ticket) return;
+            SNAPSHOT_REQUESTED.set(true);
+            publicStatus = "snapshot requested";
+        }, SNAPSHOT_SETTLE_MS);
+    }
 
     @Override public void onCreate() { super.onCreate(); createChannel(); }
 
