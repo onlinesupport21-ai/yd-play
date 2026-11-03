@@ -17,6 +17,16 @@ public class LiveGameBrainTest {
         return new AutoScanResult(hand, open, "Q", hand.size()==13 || hand.size()==14, confidence, hand, phase);
     }
 
+    @Test public void incompleteScreenReadExplainsMissingCardsInsteadOfOnlyStabilizing() {
+        LiveGameBrain brain = new LiveGameBrain();
+        PrimaryDecision d = brain.observe(
+                new AutoScanResult(List.of(),null,null,false,0.0,List.of(),TurnPhase.UNKNOWN),1000);
+        assertEquals(PrimaryDecision.Action.UNCERTAIN,d.action());
+        assertTrue(d.headline(),d.headline().contains("0/13"));
+        assertTrue(d.reason(),d.reason().contains("card"));
+        assertEquals(0,brain.consensusFrames());
+    }
+
     @Test public void refusesToAdviseUntilThreeFrameConsensus() {
         LiveGameBrain brain = new LiveGameBrain();
         PrimaryDecision first = brain.observe(scan(HAND13,"8D",0.94,TurnPhase.USER_PICK),1000);
