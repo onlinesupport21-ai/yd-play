@@ -25,6 +25,7 @@ import java.util.*;
 
 public class OverlayService extends Service {
     private static final int SCAN_MAX_POLLS = 18;
+    private static final int SCAN_RECOVERY_POLL = 7;
     private static final long SCAN_POLL_MS = 150L;
     private static final long LIVE_TICK_MS = 250L;
 
@@ -51,7 +52,6 @@ public class OverlayService extends Service {
     private boolean scanInProgress;
     private boolean liveEnabled;
     private long lastScanCompletedMs;
-    private boolean currentScanFromLive;
     private PrimaryDecision currentDecision = new PrimaryDecision(
             PrimaryDecision.Action.UNCERTAIN,
             "SCAN UNCERTAIN — DON'T ACT",
@@ -137,9 +137,15 @@ public class OverlayService extends Service {
         panel.setPadding(dp(14),dp(12),dp(14),dp(12));
         panel.setBackground(round(Color.rgb(250,252,250),24));
 
+        LinearLayout header=new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
         TextView title=label("MASTER BOT • GAME BRAIN",17,Color.rgb(18,100,55));
         title.setTypeface(null,Typeface.BOLD);
-        panel.addView(title,lp());
+        header.addView(title,new LinearLayout.LayoutParams(0,dp(44),1));
+        Button topMin=btn("—",v->hidePanel());
+        topMin.setTextSize(20);
+        header.addView(topMin,new LinearLayout.LayoutParams(dp(54),dp(44)));
+        panel.addView(header,lp());
 
         actionHeadline=label("SCAN UNCERTAIN — DON'T ACT",22,Color.rgb(90,25,25));
         actionHeadline.setTypeface(null,Typeface.BOLD);
@@ -212,7 +218,7 @@ public class OverlayService extends Service {
                 android.graphics.PixelFormat.TRANSLUCENT);
         panelParams.gravity=Gravity.TOP|Gravity.START;
         panelParams.x=dp(8);
-        panelParams.y=dp(26);
+        panelParams.y=dp(18);
         panel.setVisibility(View.GONE);
         wm.addView(panel,panelParams);
     }
@@ -240,12 +246,9 @@ public class OverlayService extends Service {
     }
 
     private void toggleLiveScan() {
-        if (liveEnabled) {
-            stopLiveScan();
-            return;
-        }
+        if (liveEnabled) { stopLiveScan(); return; }
         String status=CaptureService.getPublicStatus();
-        if (status == null || status.startsWith("inactive") || status.startsWith("permission")) {
+        if (status == null || status.startsWith("inactive") || status.startsWith("permission") || status.startsWith("capture stopped")) {
             renderDecision(new PrimaryDecision(
                     PrimaryDecision.Action.UNCERTAIN,
                     "SCREEN CAPTURE NEEDED",
@@ -277,19 +280,12 @@ public class OverlayService extends Service {
     private void requestScan(boolean fromLive) {
         if (scanInProgress) return;
         scanInProgress=true;
-        currentScanFromLive=fromLive;
         long baseline=CaptureService.getLatestSnapshotVersion();
         if (scanStatus!=null) scanStatus.setText("Scanner: capturing clean game frame…");
 
-        if (fromLive) {
-            panel.setVisibility(View.GONE);
-            bubble.setVisibility(View.GONE);
-            livePill.setVisibility(View.VISIBLE);
-        } else {
-            panel.setVisibility(View.GONE);
-            bubble.setVisibility(View.GONE);
-            livePill.setVisibility(View.GONE);
-        }
+        panel.setVisibility(View.GONE);
+        bubble.setVisibility(View.GONE);
+        livePill.setVisibility(fromLive && liveEnabled ? View.VISIBLE : View.GONE);
 
         CaptureService.requestSnapshot();
         pollFreshSnapshot(baseline,0,fromLive);
@@ -309,8 +305,13 @@ public class OverlayService extends Service {
                 });
                 return;
             }
+            if (attempt == SCAN_RECOVERY_POLL) {
+                boolean recovered=CaptureService.recoverCaptureSurface();
+                if (scanStatus!=null) scanStatus.setText(recovered ? "Scanner: recovering capture surface…" : "Scanner: waiting for fresh frame…");
+                CaptureService.requestSnapshot();
+            }
             if (attempt+1<SCAN_MAX_POLLS) pollFreshSnapshot(baseline,attempt+1,fromLive);
-            else finishScanError("No fresh frame. Renew Screen Capture permission.",fromLive);
+            else finishScanError("No fresh frame. Tap Scan Now once; only re-grant Screen Capture if Android stopped capture.",fromLive);
         },SCAN_POLL_MS);
     }
 
@@ -329,7 +330,6 @@ public class OverlayService extends Service {
     private void applyScan(AutoScanResult scan,boolean fromLive) {
         scanInProgress=false;
         lastScanCompletedMs=SystemClock.elapsedRealtime();
-        currentScanFromLive=false;
         if (scan==null) { finishScanError("Scanner returned no state",fromLive); return; }
 
         if (!scan.handCards().isEmpty()) handInput.setText(String.join(",",scan.handCards()));
@@ -351,7 +351,6 @@ public class OverlayService extends Service {
     private void finishScanError(String message,boolean fromLive) {
         scanInProgress=false;
         lastScanCompletedMs=SystemClock.elapsedRealtime();
-        currentScanFromLive=false;
         if (scanStatus!=null) scanStatus.setText("Scanner: "+message);
         renderDecision(new PrimaryDecision(
                 PrimaryDecision.Action.UNCERTAIN,
@@ -461,9 +460,7 @@ public class OverlayService extends Service {
     }
 
     private boolean isRank(String r) { for(String x:Card.RANKS) if(x.equals(r)) return true; return false; }
-
     private void updateCapture() { if (capture!=null) capture.setText("Capture: "+CaptureService.getPublicStatus()); }
-
     private void toggle(View view) { if (view!=null) view.setVisibility(view.getVisibility()==View.VISIBLE?View.GONE:View.VISIBLE); }
 
     private EditText input(String hint,boolean multi) {
