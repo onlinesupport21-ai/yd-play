@@ -14,6 +14,13 @@ public final class GoldRummyScanPolicy {
         return 14;
     }
 
+    public static boolean acceptLayout(int bannerExpected, int probeCount, int detectedSlots) {
+        if (detectedSlots <= 0) return false;
+        if (bannerExpected == 13 || bannerExpected == 14) return detectedSlots == bannerExpected;
+        if (probeCount == 13) return detectedSlots == 13;
+        return detectedSlots == 13 || detectedSlots == 14;
+    }
+
     public static int resolveExpectedCount(int bannerExpected, TurnPhase phase, int recognizedSlots) {
         if (bannerExpected == 13 || bannerExpected == 14) return bannerExpected;
         if (phase == TurnPhase.USER_PICK) return 13;
