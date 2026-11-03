@@ -37,46 +37,55 @@ public final class ScreenOcrScanner implements AutoCloseable {
 
         int width = bitmap.getWidth();
         int height = bitmap.getHeight();
-        InputImage image = InputImage.fromBitmap(bitmap, 0);
-        recognizer.process(image)
-                .addOnSuccessListener(text -> scanCalibratedOrFallback(bitmap, width, height, text, callback))
+        GoldRummyBitmapVision.HandLayout layout = GoldRummyBitmapVision.detectHand(bitmap, 0);
+        boolean calibrated = layout.cardTop() >= 0 && (layout.starts().size() == 13 || layout.starts().size() == 14);
+
+        if (ScanPassPolicy.shouldRunFullScreenFallback(calibrated)) {
+            scanFullScreenFallback(bitmap, width, height, callback);
+        } else {
+            scanCalibratedRois(bitmap, width, height, layout, callback);
+        }
+    }
+
+    private void scanCalibratedRois(
+            Bitmap bitmap,
+            int width,
+            int height,
+            GoldRummyBitmapVision.HandLayout layout,
+            Callback callback
+    ) {
+        GoldRummyRoiLayout rois = GoldRummyRoiLayout.forFrame(width, height);
+        Bitmap activity = crop(bitmap, rois.opponentActivity());
+        recognizer.process(InputImage.fromBitmap(activity, 0))
+                .addOnSuccessListener(activityText -> {
+                    activity.recycle();
+                    String screenText = activityText == null ? null : activityText.getText();
+                    TurnPhase phase = TurnPhaseClassifier.fromScreenText(screenText);
+                    int bannerExpected = GoldRummyHandGeometry.expectedHandCount(screenText);
+                    scanCalibratedCards(bitmap, activityText, layout, bannerExpected, phase, callback);
+                })
                 .addOnFailureListener(error -> {
-                    bitmap.recycle();
-                    String message = error.getMessage();
-                    callback.onError("OCR failed" + (message == null || message.isBlank() ? "" : ": " + message));
+                    activity.recycle();
+                    scanCalibratedCards(bitmap, null, layout, 0, TurnPhase.UNKNOWN, callback);
                 });
     }
 
-    private void scanCalibratedOrFallback(Bitmap bitmap, int width, int height, Text fullText, Callback callback) {
+    private void scanCalibratedCards(
+            Bitmap bitmap,
+            Text activityText,
+            GoldRummyBitmapVision.HandLayout layout,
+            int bannerExpected,
+            TurnPhase turnPhase,
+            Callback callback
+    ) {
         try {
-            String screenText = fullText == null ? null : fullText.getText();
-            TurnPhase turnPhase = TurnPhaseClassifier.fromScreenText(screenText);
-            int bannerExpected = GoldRummyHandGeometry.expectedHandCount(screenText);
-            int probeCount = GoldRummyScanPolicy.geometryProbeCount(bannerExpected, turnPhase);
-            GoldRummyBitmapVision.HandLayout layout = GoldRummyBitmapVision.detectHand(bitmap, probeCount);
-
-            boolean calibrated = layout.cardTop() >= 0
-                    && GoldRummyScanPolicy.acceptLayout(bannerExpected, probeCount, layout.starts().size());
-            if (!calibrated) {
-                AutoScanResult rawFallback = ScreenRegionClassifier.classify(width, height, toHits(fullText));
-                AutoScanResult fallback = new AutoScanResult(
-                        rawFallback.handCards(), rawFallback.openCard(), rawFallback.jokerRank(),
-                        rawFallback.completeHand(), Math.min(0.69, rawFallback.confidence()),
-                        rawFallback.allDetectedCards(), turnPhase);
-                bitmap.recycle();
-                callback.onSuccess(fallback);
-                return;
-            }
-
-            final int finalBannerExpected = bannerExpected;
-            final TurnPhase finalTurnPhase = turnPhase;
             GoldRummyBitmapVision.OcrStrip strip = GoldRummyBitmapVision.buildOcrStrip(bitmap, layout);
             recognizer.process(InputImage.fromBitmap(strip.bitmap(), 0))
                     .addOnSuccessListener(slotText -> {
                         try {
                             callback.onSuccess(buildCalibratedResult(
-                                    bitmap, fullText, slotText, layout, strip,
-                                    finalBannerExpected, finalTurnPhase));
+                                    bitmap, activityText, slotText, layout, strip,
+                                    bannerExpected, turnPhase));
                         } catch (Exception e) {
                             callback.onError("Card-slot parse error: " + e.getClass().getSimpleName());
                         } finally {
@@ -96,9 +105,43 @@ public final class ScreenOcrScanner implements AutoCloseable {
         }
     }
 
+    private void scanFullScreenFallback(Bitmap bitmap, int width, int height, Callback callback) {
+        recognizer.process(InputImage.fromBitmap(bitmap, 0))
+                .addOnSuccessListener(fullText -> {
+                    try {
+                        String screenText = fullText == null ? null : fullText.getText();
+                        TurnPhase turnPhase = TurnPhaseClassifier.fromScreenText(screenText);
+                        AutoScanResult rawFallback = ScreenRegionClassifier.classify(width, height, toHits(fullText));
+                        AutoScanResult fallback = new AutoScanResult(
+                                rawFallback.handCards(), rawFallback.openCard(), rawFallback.jokerRank(),
+                                rawFallback.completeHand(), Math.min(0.69, rawFallback.confidence()),
+                                rawFallback.allDetectedCards(), turnPhase);
+                        callback.onSuccess(fallback);
+                    } catch (Exception e) {
+                        callback.onError("Fallback scan error: " + e.getClass().getSimpleName());
+                    } finally {
+                        bitmap.recycle();
+                    }
+                })
+                .addOnFailureListener(error -> {
+                    bitmap.recycle();
+                    String message = error.getMessage();
+                    callback.onError("OCR failed" + (message == null || message.isBlank() ? "" : ": " + message));
+                });
+    }
+
+    private static Bitmap crop(Bitmap source, GoldRummyRoiLayout.Zone zone) {
+        return Bitmap.createBitmap(
+                source,
+                zone.left(),
+                zone.top(),
+                zone.right() - zone.left(),
+                zone.bottom() - zone.top());
+    }
+
     private static AutoScanResult buildCalibratedResult(
             Bitmap bitmap,
-            Text fullText,
+            Text roiText,
             Text slotText,
             GoldRummyBitmapVision.HandLayout layout,
             GoldRummyBitmapVision.OcrStrip strip,
@@ -138,11 +181,14 @@ public final class ScreenOcrScanner implements AutoCloseable {
         String jokerRank = CardTokenParser.extractRank(raw[strip.jokerCell()]);
         if ("PJ".equals(jokerRank)) jokerRank = null;
 
-        for (OcrHit hit : toHits(fullText)) all.addAll(CardTokenParser.extractCardCodes(hit.text()));
+        for (OcrHit hit : toHits(roiText)) all.addAll(CardTokenParser.extractCardCodes(hit.text()));
         Set<String> diagnosticUnique = new LinkedHashSet<>(all);
         List<String> diagnostics = new ArrayList<>(diagnosticUnique);
 
         int resolvedExpected = GoldRummyScanPolicy.resolveExpectedCount(bannerExpected, turnPhase, hand.size());
+        if (resolvedExpected == 0 && (layout.starts().size() == 13 || layout.starts().size() == 14)) {
+            resolvedExpected = layout.starts().size();
+        }
         TurnPhase resolvedTurnPhase = GoldRummyScanPolicy.resolveTurnPhase(turnPhase, resolvedExpected);
         boolean completeHand = resolvedExpected > 0 && hand.size() == resolvedExpected;
         int denominator = resolvedExpected > 0 ? resolvedExpected : Math.max(1, strip.handCells());
