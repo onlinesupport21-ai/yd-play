@@ -31,7 +31,7 @@ public class LiveGameBrainTest {
         PrimaryDecision second = brain.observe(scan(hand14,"8D",0.93,TurnPhase.USER_DISCARD),1200);
         assertEquals(PrimaryDecision.Action.DISCARD, second.action());
         assertNotNull(second.targetCard());
-        assertEquals(14, brain.ledger().knownTotal() - 1); // own 14; open may duplicate an own code and is conservatively capped
+        assertEquals(14, brain.ledger().knownTotal() - 1); // own 14; visible open may be the second copy of a code already held
     }
 
     @Test public void learnsVisibleOpponentDiscardOnlyAfterStableTransition() {
@@ -48,11 +48,26 @@ public class LiveGameBrainTest {
         assertTrue(brain.memory().risk("10H") >= 0.0);
     }
 
+    @Test public void userDiscardToOpponentTurnBoundaryDoesNotPoisonOpponentMemory() {
+        LiveGameBrain brain = new LiveGameBrain();
+        List<String> hand14 = new ArrayList<>(HAND13);
+        hand14.add("KC");
+
+        brain.observe(scan(hand14,"8D",0.95,TurnPhase.USER_DISCARD),1000);
+        brain.observe(scan(hand14,"8D",0.95,TurnPhase.USER_DISCARD),1200);
+        assertEquals(0, brain.memory().observations());
+
+        brain.observe(scan(HAND13,"KC",0.95,TurnPhase.OTHER),1400);
+        PrimaryDecision waiting = brain.observe(scan(HAND13,"KC",0.95,TurnPhase.OTHER),1600);
+        assertEquals(PrimaryDecision.Action.WATCHING, waiting.action());
+        assertEquals(0, brain.memory().observations());
+    }
+
     @Test public void unknownTurnNeverPoisonsOpponentMemoryOrAdvises() {
         LiveGameBrain brain = new LiveGameBrain();
         brain.observe(scan(HAND13,"8D",0.95,TurnPhase.UNKNOWN),1000);
         PrimaryDecision d = brain.observe(scan(HAND13,"8D",0.95,TurnPhase.UNKNOWN),1200);
-        assertEquals(PrimaryDecision.Action.UNCERTAIN, d.action());
+        assertEquals(PrimaryDecision.Action.UNCERTAIN,d.action());
         assertEquals(0, brain.memory().observations());
     }
 }
