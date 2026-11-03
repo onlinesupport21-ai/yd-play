@@ -49,7 +49,9 @@ public final class ScreenOcrScanner implements AutoCloseable {
 
     private void scanCalibratedOrFallback(Bitmap bitmap, int width, int height, Text fullText, Callback callback) {
         try {
-            int expected = GoldRummyHandGeometry.expectedHandCount(fullText == null ? null : fullText.getText());
+            String screenText = fullText == null ? null : fullText.getText();
+            TurnPhase turnPhase = TurnPhaseClassifier.fromScreenText(screenText);
+            int expected = GoldRummyHandGeometry.expectedHandCount(screenText);
             GoldRummyBitmapVision.HandLayout layout = GoldRummyBitmapVision.detectHand(bitmap, expected);
             int resolvedExpected = expected;
             if (resolvedExpected == 0 && (layout.starts().size() == 13 || layout.starts().size() == 14)) {
@@ -64,18 +66,19 @@ public final class ScreenOcrScanner implements AutoCloseable {
                 AutoScanResult fallback = new AutoScanResult(
                         rawFallback.handCards(), rawFallback.openCard(), rawFallback.jokerRank(),
                         rawFallback.completeHand(), Math.min(0.69, rawFallback.confidence()),
-                        rawFallback.allDetectedCards());
+                        rawFallback.allDetectedCards(), turnPhase);
                 bitmap.recycle();
                 callback.onSuccess(fallback);
                 return;
             }
 
             final int targetCount = resolvedExpected;
+            final TurnPhase finalTurnPhase = turnPhase;
             GoldRummyBitmapVision.OcrStrip strip = GoldRummyBitmapVision.buildOcrStrip(bitmap, layout);
             recognizer.process(InputImage.fromBitmap(strip.bitmap(), 0))
                     .addOnSuccessListener(slotText -> {
                         try {
-                            callback.onSuccess(buildCalibratedResult(bitmap, fullText, slotText, layout, strip, targetCount));
+                            callback.onSuccess(buildCalibratedResult(bitmap, fullText, slotText, layout, strip, targetCount, finalTurnPhase));
                         } catch (Exception e) {
                             callback.onError("Card-slot parse error: " + e.getClass().getSimpleName());
                         } finally {
@@ -101,7 +104,8 @@ public final class ScreenOcrScanner implements AutoCloseable {
             Text slotText,
             GoldRummyBitmapVision.HandLayout layout,
             GoldRummyBitmapVision.OcrStrip strip,
-            int expectedCount
+            int expectedCount,
+            TurnPhase turnPhase
     ) {
         int cellCount = strip.jokerCell() + 1;
         String[] raw = collectCellText(slotText, strip.cellWidth(), cellCount);
@@ -136,10 +140,7 @@ public final class ScreenOcrScanner implements AutoCloseable {
         String jokerRank = CardTokenParser.extractRank(raw[strip.jokerCell()]);
         if ("PJ".equals(jokerRank)) jokerRank = null;
 
-        // Keep generic detections for diagnostics only; they do not override calibrated fields.
-        for (OcrHit hit : toHits(fullText)) {
-            all.addAll(CardTokenParser.extractCardCodes(hit.text()));
-        }
+        for (OcrHit hit : toHits(fullText)) all.addAll(CardTokenParser.extractCardCodes(hit.text()));
         Set<String> diagnosticUnique = new LinkedHashSet<>(all);
         List<String> diagnostics = new ArrayList<>(diagnosticUnique);
 
@@ -150,10 +151,10 @@ public final class ScreenOcrScanner implements AutoCloseable {
         if (jokerRank != null) confidence += 0.07;
         confidence = Math.min(1.0, confidence);
         if (!completeHand) confidence = Math.min(confidence, 0.69);
-        if (openCard == null) confidence = Math.min(confidence, 0.72);
+        if (openCard == null && turnPhase == TurnPhase.USER_PICK) confidence = Math.min(confidence, 0.72);
         if (jokerRank == null) confidence = Math.min(confidence, 0.70);
 
-        return new AutoScanResult(hand, openCard, jokerRank, completeHand, confidence, diagnostics);
+        return new AutoScanResult(hand, openCard, jokerRank, completeHand, confidence, diagnostics, turnPhase);
     }
 
     private static String[] collectCellText(Text text, int cellWidth, int cellCount) {
@@ -204,9 +205,7 @@ public final class ScreenOcrScanner implements AutoCloseable {
                 String raw = line.getText() == null ? "" : line.getText().trim();
                 if (raw.isEmpty()) continue;
 
-                if (raw.toUpperCase(Locale.ROOT).contains("JOKER")) {
-                    hits.add(new OcrHit("JOKER", box.left, box.top, box.right, box.bottom));
-                }
+                if (raw.toUpperCase(Locale.ROOT).contains("JOKER")) hits.add(new OcrHit("JOKER", box.left, box.top, box.right, box.bottom));
 
                 List<String> codes = CardTokenParser.extractCardCodes(raw);
                 if (codes.isEmpty()) continue;
