@@ -22,6 +22,7 @@ public final class LiveGameBrain {
     private final DecisionPresenter presenter = new DecisionPresenter();
 
     private StableGameState previousStable;
+    private TurnPhase previousPhase = TurnPhase.UNKNOWN;
 
     public synchronized PrimaryDecision observe(AutoScanResult scan, long timestampMs) {
         if (scan == null) return presenter.present(null, null, memory, ledger);
@@ -34,12 +35,13 @@ public final class LiveGameBrain {
         if (current.openCard() != null) ledger.observeVisibleCard(current.openCard());
 
         TurnPhase phase = scan.turnPhase() == null ? TurnPhase.UNKNOWN : scan.turnPhase();
-        if (phase == TurnPhase.OTHER && previousStable != null) {
+        if (phase == TurnPhase.OTHER && previousPhase == TurnPhase.OTHER && previousStable != null) {
             List<OpponentTracker.Event> events = opponentTracker.observeTransition(
                     previousStable, current, false, "table");
             for (OpponentTracker.Event event : events) ledger.observeVisibleCard(event.cardCode());
         }
         previousStable = current;
+        previousPhase = phase;
 
         if (phase == TurnPhase.OTHER) {
             return new PrimaryDecision(
@@ -68,6 +70,7 @@ public final class LiveGameBrain {
 
     public synchronized void resetRound() {
         previousStable = null;
+        previousPhase = TurnPhase.UNKNOWN;
         stableTracker.reset();
         ledger.reset();
     }
