@@ -24,8 +24,8 @@ public final class GoldRummyRois {
         switch(zone) {
             case HAND -> { l=.10; t=.55; r=.93; b=.84; }
             case TURN -> { l=.32; t=.265; r=.73; b=.36; }
-            case OPEN -> { l=.61; t=.34; r=.70; b=.55; }
-            case JOKER -> { l=.30; t=.34; r=.42; b=.55; }
+            case OPEN -> { l=.615; t=.34; r=.690; b=.55; }
+            case JOKER -> { l=.295; t=.34; r=.355; b=.55; }
             default -> throw new IllegalArgumentException("Unknown region");
         }
         int x0=clamp((int)Math.round(l*width),0,width-1);
