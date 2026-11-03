@@ -32,6 +32,7 @@ public class CaptureService extends Service {
     private static final Handler SNAPSHOT_HANDLER = new Handler(Looper.getMainLooper());
     private static final long SNAPSHOT_SETTLE_MS = 180L;
     private static volatile String publicStatus = "inactive";
+    private static volatile CaptureService activeInstance;
 
     private final Object captureLock = new Object();
     private MediaProjection projection;
@@ -41,11 +42,15 @@ public class CaptureService extends Service {
     private int captureWidth;
     private int captureHeight;
     private int captureDensity;
+    private volatile long lastFrameElapsedMs;
 
     public static String getPublicStatus() { return publicStatus; }
     public static long getLatestSnapshotVersion() { return SNAPSHOT_VERSION.get(); }
     public static File getLatestSnapshotFile(Context context) { return new File(context.getCacheDir(), "master_snapshot.png"); }
+
     public static void requestSnapshot() {
+        CaptureService instance = activeInstance;
+        if (instance != null) instance.prepareSnapshotSurface(false);
         long ticket = SNAPSHOT_REQUEST_SEQUENCE.incrementAndGet();
         SNAPSHOT_REQUESTED.set(false);
         publicStatus = "snapshot settling";
@@ -56,7 +61,17 @@ public class CaptureService extends Service {
         }, SNAPSHOT_SETTLE_MS);
     }
 
-    @Override public void onCreate() { super.onCreate(); createChannel(); }
+    /** Reattaches the ImageReader to the existing MediaProjection without asking permission again. */
+    public static boolean recoverCaptureSurface() {
+        CaptureService instance = activeInstance;
+        return instance != null && instance.prepareSnapshotSurface(true);
+    }
+
+    @Override public void onCreate() {
+        super.onCreate();
+        activeInstance = this;
+        createChannel();
+    }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         startForeground(52, notification("Screen capture active"));
@@ -134,15 +149,41 @@ public class CaptureService extends Service {
         synchronized (captureLock) {
             if (display == null || thread == null) return;
             if (width == captureWidth && height == captureHeight) return;
-            ImageReader oldReader=reader;
-            ImageReader newReader=createReader(width,height);
-            display.resize(width,height,captureDensity);
+            reattachReaderLocked(width, height, "resized");
+        }
+    }
+
+    private boolean prepareSnapshotSurface(boolean force) {
+        synchronized (captureLock) {
+            if (projection == null || display == null || thread == null) return false;
+            long now = SystemClock.elapsedRealtime();
+            if (!force && !CaptureRecoveryPolicy.shouldReattach(now, lastFrameElapsedMs, reader != null, display != null)) {
+                return false;
+            }
+            DisplayMetrics dm = currentDisplayMetrics();
+            return reattachReaderLocked(dm.widthPixels, dm.heightPixels, force ? "recovered" : "refreshed");
+        }
+    }
+
+    private boolean reattachReaderLocked(int width, int height, String reason) {
+        if (width <= 0 || height <= 0 || display == null || thread == null) return false;
+        ImageReader oldReader = reader;
+        ImageReader newReader = createReader(width, height);
+        try {
+            captureDensity = currentDisplayMetrics().densityDpi;
+            display.resize(width, height, captureDensity);
             display.setSurface(newReader.getSurface());
-            reader=newReader;
-            captureWidth=width;
-            captureHeight=height;
-            if (oldReader!=null) oldReader.close();
-            publicStatus="active " + width + "x" + height + " • resized";
+            reader = newReader;
+            captureWidth = width;
+            captureHeight = height;
+            lastFrameElapsedMs = 0L;
+            if (oldReader != null) oldReader.close();
+            publicStatus = "active " + width + "x" + height + " • " + reason;
+            return true;
+        } catch (RuntimeException error) {
+            newReader.close();
+            publicStatus = "capture recovery failed: " + error.getClass().getSimpleName();
+            return false;
         }
     }
 
@@ -152,7 +193,9 @@ public class CaptureService extends Service {
         Bitmap cropped=null;
         try {
             image=r.acquireLatestImage();
-            if (image==null || !SNAPSHOT_REQUESTED.compareAndSet(true,false)) return;
+            if (image==null) return;
+            lastFrameElapsedMs=SystemClock.elapsedRealtime();
+            if (!SNAPSHOT_REQUESTED.compareAndSet(true,false)) return;
             Image.Plane plane=image.getPlanes()[0];
             ByteBuffer buffer=plane.getBuffer();
             int pixelStride=plane.getPixelStride();
@@ -183,10 +226,12 @@ public class CaptureService extends Service {
         synchronized (captureLock) {
             if (display!=null) { display.release(); display=null; }
             if (reader!=null) { reader.close(); reader=null; }
+            lastFrameElapsedMs=0L;
         }
     }
 
     @Override public void onDestroy() {
+        if (activeInstance == this) activeInstance = null;
         releaseCaptureResources();
         if (projection!=null) { projection.stop(); projection=null; }
         if (thread!=null) { thread.quitSafely(); thread=null; }
