@@ -285,7 +285,9 @@ public class OverlayService extends Service {
 
         panel.setVisibility(View.GONE);
         bubble.setVisibility(View.GONE);
-        livePill.setVisibility(fromLive && liveEnabled ? View.VISIBLE : View.GONE);
+        // Hide EVERY overlay window until the frame has been saved.
+        // Otherwise our own HUD can contaminate MediaProjection/OCR.
+        livePill.setVisibility(View.GONE);
 
         CaptureService.requestSnapshot();
         pollFreshSnapshot(baseline,0,fromLive);
@@ -342,7 +344,8 @@ public class OverlayService extends Service {
         String confidence=String.format(Locale.US,"%.0f%%",scan.confidence()*100.0);
         scanStatus.setText("Scanner: "+scan.handCards().size()+" cards • "+confidence+" • "+scan.turnPhase()
                 +(scan.openCard()==null?"":" • open "+scan.openCard())
-                +(scan.jokerRank()==null?"":" • joker "+scan.jokerRank()));
+                +(scan.jokerRank()==null?"":" • joker "+scan.jokerRank())
+                +"\nVision: "+scanner.getLatestDiagnostic());
         updatePatternText();
         updateCapture();
         restoreAfterCapture(fromLive && liveEnabled);
