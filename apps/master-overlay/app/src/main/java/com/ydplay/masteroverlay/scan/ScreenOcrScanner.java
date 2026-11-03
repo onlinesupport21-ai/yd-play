@@ -26,6 +26,8 @@ public final class ScreenOcrScanner implements AutoCloseable {
 
     private final TextRecognizer recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
     private final AtomicBoolean closed = new AtomicBoolean(false);
+    private volatile String latestDiagnostic = "No scan attempted";
+    public String getLatestDiagnostic() { return latestDiagnostic; }
 
     public void scan(File imageFile, Callback callback) {
         if (callback == null) return;
@@ -39,6 +41,9 @@ public final class ScreenOcrScanner implements AutoCloseable {
         int height = bitmap.getHeight();
         GoldRummyBitmapVision.HandLayout layout = GoldRummyBitmapVision.detectHand(bitmap, 0);
         boolean calibrated = layout.cardTop() >= 0 && (layout.starts().size() == 13 || layout.starts().size() == 14);
+        latestDiagnostic = "Frame " + width + "×" + height
+                + " • top " + layout.cardTop() + " • borders " + layout.starts().size()
+                + (calibrated ? " (calibrated)" : " (layout incomplete)");
 
         if (ScanPassPolicy.shouldRunFullScreenFallback(calibrated)) {
             scanFullScreenFallback(bitmap, width, height, callback);
@@ -86,9 +91,14 @@ public final class ScreenOcrScanner implements AutoCloseable {
             recognizer.process(InputImage.fromBitmap(strip.bitmap(), 0))
                     .addOnSuccessListener(slotText -> {
                         try {
-                            callback.onSuccess(buildCalibratedResult(
+                            AutoScanResult result = buildCalibratedResult(
                                     bitmap, activityText, slotText, layout, strip,
-                                    bannerExpected, turnPhase));
+                                    bannerExpected, turnPhase);
+                            latestDiagnostic = "Slots " + strip.handCells()
+                                    + " • identified " + result.handCards().size()
+                                    + " • open " + (result.openCard() == null ? "?" : result.openCard())
+                                    + " • wild " + (result.jokerRank() == null ? "?" : result.jokerRank());
+                            callback.onSuccess(result);
                         } catch (Exception e) {
                             callback.onError("Card-slot parse error: " + e.getClass().getSimpleName());
                         } finally {
@@ -119,6 +129,9 @@ public final class ScreenOcrScanner implements AutoCloseable {
                                 rawFallback.handCards(), rawFallback.openCard(), rawFallback.jokerRank(),
                                 rawFallback.completeHand(), Math.min(0.69, rawFallback.confidence()),
                                 rawFallback.allDetectedCards(), turnPhase);
+                        latestDiagnostic = "Layout " + width + "×" + height
+                                + " incomplete; full-frame fallback found "
+                                + fallback.handCards().size() + " cards";
                         callback.onSuccess(fallback);
                     } catch (Exception e) {
                         callback.onError("Fallback scan error: " + e.getClass().getSimpleName());
