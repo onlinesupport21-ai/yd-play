@@ -60,7 +60,11 @@ public final class ScreenOcrScanner implements AutoCloseable {
                     && layout.cardTop() >= 0
                     && layout.starts().size() == resolvedExpected;
             if (!calibrated) {
-                AutoScanResult fallback = ScreenRegionClassifier.classify(width, height, toHits(fullText));
+                AutoScanResult rawFallback = ScreenRegionClassifier.classify(width, height, toHits(fullText));
+                AutoScanResult fallback = new AutoScanResult(
+                        rawFallback.handCards(), rawFallback.openCard(), rawFallback.jokerRank(),
+                        rawFallback.completeHand(), Math.min(0.69, rawFallback.confidence()),
+                        rawFallback.allDetectedCards());
                 bitmap.recycle();
                 callback.onSuccess(fallback);
                 return;
