@@ -55,7 +55,8 @@ public final class ScreenOcrScanner implements AutoCloseable {
             int probeCount = GoldRummyScanPolicy.geometryProbeCount(bannerExpected, turnPhase);
             GoldRummyBitmapVision.HandLayout layout = GoldRummyBitmapVision.detectHand(bitmap, probeCount);
 
-            boolean calibrated = layout.cardTop() >= 0 && layout.starts().size() == probeCount;
+            boolean calibrated = layout.cardTop() >= 0
+                    && GoldRummyScanPolicy.acceptLayout(bannerExpected, probeCount, layout.starts().size());
             if (!calibrated) {
                 AutoScanResult rawFallback = ScreenRegionClassifier.classify(width, height, toHits(fullText));
                 AutoScanResult fallback = new AutoScanResult(
