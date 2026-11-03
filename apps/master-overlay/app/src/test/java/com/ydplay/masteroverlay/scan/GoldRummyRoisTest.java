@@ -30,7 +30,7 @@ public class GoldRummyRoisTest {
         assertTrue(turn.contains(800,220));
         assertTrue(hand.contains(400,460));
         assertTrue(open.contains(999,300));
-        assertTrue(joker.contains(545,310));
+        assertTrue(joker.contains(518,310));
         assertFalse(turn.contains(800,460));
         assertFalse(open.contains(545,310));
     }
