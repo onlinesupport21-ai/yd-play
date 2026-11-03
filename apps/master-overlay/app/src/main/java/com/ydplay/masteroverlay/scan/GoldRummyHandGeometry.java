@@ -20,9 +20,10 @@ public final class GoldRummyHandGeometry {
     }
 
     /**
-     * Non-maximum suppression over vertical-edge candidates.  Overlapped cards on this skin are
+     * Non-maximum suppression over vertical-edge candidates. Overlapped cards on this skin are
      * separated by roughly 4% of screen width; artwork/noise peaks usually occur within 3% of a
-     * real left edge.  Keep the strongest peak in each neighbourhood, then preserve screen order.
+     * real left edge. A genuine left edge must also have a mostly-white card body immediately to
+     * its right, which rejects group-gap borders that were visible in the user's screenshot.
      */
     public static List<Integer> selectStarts(int width, List<Candidate> candidates, int expectedCount) {
         if (width <= 0 || candidates == null || candidates.isEmpty()) return List.of();
@@ -32,7 +33,7 @@ public final class GoldRummyHandGeometry {
         for (Candidate c : candidates) {
             if (c == null) continue;
             if (c.x() < 0 || c.x() >= width) continue;
-            if (c.edgeScore() < 18.0 || c.whiteRightRatio() < 0.35) continue;
+            if (c.edgeScore() < 18.0 || c.whiteRightRatio() < 0.50) continue;
             ranked.add(c);
         }
         ranked.sort(Comparator
