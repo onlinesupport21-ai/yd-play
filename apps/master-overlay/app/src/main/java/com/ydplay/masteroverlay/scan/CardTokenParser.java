@@ -26,6 +26,22 @@ public final class CardTokenParser {
         return s;
     }
 
+    /** Parse only the rank from a tightly cropped card corner OCR result. */
+    public static String extractRank(String rawText) {
+        if (rawText == null || rawText.isBlank()) return null;
+        String compact = rawText.toUpperCase(Locale.ROOT)
+                .replace("♠", "S")
+                .replace("♥", "H")
+                .replace("♦", "D")
+                .replace("♣", "C")
+                .replaceAll("[^A-Z0-9]", "");
+        if (compact.contains("JOKER") || compact.equals("JK") || compact.equals("PJ")) return "PJ";
+        if (compact.equals("I0") || compact.equals("IO") || compact.equals("L0")) return "10";
+        if (compact.matches("10|[2-9AJQK]")) return compact;
+        if (compact.matches("(?:10|[2-9AJQK])[SHDC]")) return compact.substring(0, compact.length() - 1);
+        return null;
+    }
+
     public static List<String> extractCardCodes(String rawText) {
         List<String> out = new ArrayList<>();
         if (rawText == null || rawText.isBlank()) return out;
