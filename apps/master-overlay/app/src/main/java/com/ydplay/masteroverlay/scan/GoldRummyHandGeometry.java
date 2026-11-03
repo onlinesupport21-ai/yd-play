@@ -45,6 +45,28 @@ public final class GoldRummyHandGeometry {
     }
 
     /**
+     * Rejects false edges caused by card artwork rather than by the card's actual upper border.
+     * topBandContrast[x] measures luminance discontinuity at cardTop+2..cardTop+12.
+     * The threshold is based on the supplied Gold-style screenshot samples; it is NOT
+     * a confidence claim about rank/suit recognition.
+     */
+    public static List<Integer> selectStartsWithTopBand(
+            int width, List<Candidate> candidates, double[] topBandContrast, int expectedCount) {
+        if (candidates == null || topBandContrast == null || topBandContrast.length < width) {
+            return List.of();
+        }
+        List<Candidate> confirmed = new ArrayList<>();
+        for (Candidate candidate : candidates) {
+            if (candidate == null || candidate.x() < 0 || candidate.x() >= width) continue;
+            if (Double.isFinite(topBandContrast[candidate.x()])
+                    && topBandContrast[candidate.x()] >= 8.0) {
+                confirmed.add(candidate);
+            }
+        }
+        return selectStarts(width, confirmed, expectedCount);
+    }
+
+    /**
      * Non-maximum suppression over persistent boundary candidates. Overlapped cards on this skin
      * are separated by roughly 4% of screen width; artwork/noise peaks usually occur within 3% of
      * a real left edge. A genuine left edge must also have a mostly-white card body immediately to
