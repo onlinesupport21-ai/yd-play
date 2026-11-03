@@ -26,35 +26,57 @@ final class GoldRummyBitmapVision {
         int cardTop = detectCardTop(px, w, h);
         if (cardTop < 0) return new HandLayout(-1, List.of(), 0.0);
 
-        int y1 = Math.min(h, cardTop + Math.max(80, (int) Math.round(h * 0.20)));
-        int x0 = Math.max(1, (int) Math.round(w * 0.08));
-        int x1 = Math.min(w - 2, (int) Math.round(w * 0.94));
-        double[] edge = new double[w];
+        int x0 = Math.max(3, (int) Math.round(w * 0.08));
+        int x1 = Math.min(w - 4, (int) Math.round(w * 0.94));
+        int sampleTop = Math.min(h - 1, cardTop + 5);
+        int sampleBottom = Math.min(h, cardTop + 125);
+        int sampleCount = Math.max(1, (sampleBottom - sampleTop + 1) / 2);
+
+        double[] boundary = new double[w];
+        double[] rightWhiteMean = new double[w];
+        double[] persistence = new double[w];
         for (int x = x0; x <= x1; x++) {
-            long sum = 0;
-            int n = 0;
-            for (int y = cardTop; y < y1; y += 2) {
-                sum += Math.abs(luma(px[y * w + x]) - luma(px[y * w + x - 1]));
-                n++;
+            int[] leftLuma = new int[sampleCount];
+            int[] rightLuma = new int[sampleCount];
+            double[] rightWhite = new double[sampleCount];
+            int i = 0;
+            int persistentRows = 0;
+            double whiteSum = 0.0;
+            for (int y = sampleTop; y < sampleBottom && i < sampleCount; y += 2, i++) {
+                leftLuma[i] = luma(px[y * w + (x - 2)]);
+                rightLuma[i] = luma(px[y * w + (x + 2)]);
+                double white = rowNeutralWhiteRatio(px, w, h, x + 3, y, Math.min(w, x + 13));
+                rightWhite[i] = white;
+                whiteSum += white;
+                if (white >= 0.60 && Math.abs(rightLuma[i] - leftLuma[i]) >= 25) persistentRows++;
             }
-            edge[x] = n == 0 ? 0 : sum / (double) n;
+            if (i == 0) continue;
+            if (i < sampleCount) {
+                int[] l2 = new int[i];
+                int[] r2 = new int[i];
+                double[] w2 = new double[i];
+                System.arraycopy(leftLuma, 0, l2, 0, i);
+                System.arraycopy(rightLuma, 0, r2, 0, i);
+                System.arraycopy(rightWhite, 0, w2, 0, i);
+                leftLuma = l2;
+                rightLuma = r2;
+                rightWhite = w2;
+            }
+            boundary[x] = GoldRummyHandGeometry.boundaryScore(leftLuma, rightLuma, rightWhite);
+            rightWhiteMean[x] = whiteSum / i;
+            persistence[x] = persistentRows / (double) i;
         }
 
         List<GoldRummyHandGeometry.Candidate> candidates = new ArrayList<>();
-        int rightWidth = Math.max(24, (int) Math.round(w * 0.035));
-        int whiteBottom = Math.min(h, cardTop + Math.max(70, (int) Math.round(h * 0.18)));
         for (int x = x0 + 3; x <= x1 - 3; x++) {
-            double score = edge[x];
-            if (score < 18.0) continue;
+            double score = boundary[x];
+            if (score < 18.0 || persistence[x] < 0.18 || rightWhiteMean[x] < 0.50) continue;
             boolean localMax = true;
             for (int k = x - 3; k <= x + 3; k++) {
-                if (edge[k] > score) { localMax = false; break; }
+                if (boundary[k] > score) { localMax = false; break; }
             }
-            if (!localMax) continue;
-            double whiteRatio = neutralWhiteRatio(px, w, h, x, cardTop,
-                    Math.min(w, x + rightWidth), whiteBottom, 2);
-            if (whiteRatio >= 0.35) {
-                candidates.add(new GoldRummyHandGeometry.Candidate(x, score, whiteRatio));
+            if (localMax) {
+                candidates.add(new GoldRummyHandGeometry.Candidate(x, score, rightWhiteMean[x]));
             }
         }
 
@@ -205,15 +227,16 @@ final class GoldRummyBitmapVision {
     private static double mean(int[] rows, int a, int b) {
         if (b <= a) return 0; long sum = 0; for (int i = a; i < b; i++) sum += rows[i]; return sum / (double)(b - a);
     }
-    private static double neutralWhiteRatio(int[] px, int w, int h, int x0, int y0, int x1, int y1, int step) {
+    private static double rowNeutralWhiteRatio(int[] px, int w, int h, int x0, int y, int x1) {
+        if (y < 0 || y >= h) return 0.0;
+        int left = clamp(x0, 0, w - 1);
+        int right = clamp(x1, left + 1, w);
         int white = 0, total = 0;
-        for (int y = clamp(y0, 0, h - 1); y < clamp(y1, 1, h); y += step) {
-            for (int x = clamp(x0, 0, w - 1); x < clamp(x1, 1, w); x += step) {
-                if (isNeutralWhite(px[y * w + x])) white++;
-                total++;
-            }
+        for (int x = left; x < right; x++) {
+            if (isNeutralWhite(px[y * w + x])) white++;
+            total++;
         }
-        return total == 0 ? 0 : white / (double) total;
+        return total == 0 ? 0.0 : white / (double) total;
     }
     private static boolean isNeutralWhite(int c) {
         int r = Color.red(c), g = Color.green(c), b = Color.blue(c);
