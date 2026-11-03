@@ -29,8 +29,25 @@ public final class LiveGameBrain {
 
         Optional<StableGameState> promoted = stableTracker.observe(scan, timestampMs);
         if (promoted.isEmpty()) return presenter.present(null, null, memory, ledger);
+        return decideFromStable(scan, promoted.get(), timestampMs);
+    }
 
-        StableGameState current = promoted.get();
+    /**
+     * Consumes a scan that has already passed external multi-frame consensus.
+     * This avoids stacking the internal two-frame gate on top of a stronger three-frame gate.
+     */
+    public synchronized PrimaryDecision observeConsensus(AutoScanResult scan, long timestampMs) {
+        if (!acceptableConsensus(scan)) return presenter.present(null, null, memory, ledger);
+        StableGameState current = new StableGameState(
+                scan.handCards(),
+                scan.openCard(),
+                scan.jokerRank(),
+                scan.confidence(),
+                timestampMs);
+        return decideFromStable(scan, current, timestampMs);
+    }
+
+    private PrimaryDecision decideFromStable(AutoScanResult scan, StableGameState current, long timestampMs) {
         ledger.refreshOwnHand(current.handCards());
         if (current.openCard() != null) ledger.observeVisibleCard(current.openCard());
 
@@ -73,6 +90,12 @@ public final class LiveGameBrain {
         previousPhase = TurnPhase.UNKNOWN;
         stableTracker.reset();
         ledger.reset();
+    }
+
+    private static boolean acceptableConsensus(AutoScanResult scan) {
+        if (scan == null || !scan.completeHand() || scan.confidence() < 0.75) return false;
+        int size = scan.handCards().size();
+        return size == 13 || size == 14;
     }
 
     private static List<Card> parseHand(List<String> codes) {
