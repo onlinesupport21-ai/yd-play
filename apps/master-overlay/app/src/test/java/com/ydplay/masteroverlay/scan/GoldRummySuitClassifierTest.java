@@ -14,7 +14,8 @@ public class GoldRummySuitClassifierTest {
 
     @Test public void separatesBlackClubFromSpadeByTopToMiddleWidth() {
         assertEquals("C", GoldRummySuitClassifier.fromShape(false, 0.55));
-        assertEquals("C", GoldRummySuitClassifier.fromShape(false, 0.47));
+        assertEquals("C", GoldRummySuitClassifier.fromShape(false, 0.53));
+        assertEquals("S", GoldRummySuitClassifier.fromShape(false, 0.47));
         assertEquals("S", GoldRummySuitClassifier.fromShape(false, 0.39));
         assertEquals("S", GoldRummySuitClassifier.fromShape(false, 0.25));
     }
