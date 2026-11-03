@@ -34,6 +34,16 @@ public class LiveGameBrainTest {
         assertEquals(14, brain.ledger().knownTotal() - 1); // own 14; visible open may be the second copy of a code already held
     }
 
+    @Test public void consensusPromotedFrameSkipsSecondStabilityGate() {
+        LiveGameBrain brain = new LiveGameBrain();
+        List<String> hand14 = new ArrayList<>(HAND13);
+        hand14.add("KC");
+        PrimaryDecision decision = brain.observeConsensus(
+                scan(hand14,"8D",0.93,TurnPhase.USER_DISCARD),1200);
+        assertEquals(PrimaryDecision.Action.DISCARD, decision.action());
+        assertNotNull(decision.targetCard());
+    }
+
     @Test public void learnsVisibleOpponentDiscardOnlyAfterStableTransition() {
         LiveGameBrain brain = new LiveGameBrain();
         brain.observe(scan(HAND13,"8D",0.93,TurnPhase.OTHER),1000);
