@@ -51,16 +51,11 @@ public final class ScreenOcrScanner implements AutoCloseable {
         try {
             String screenText = fullText == null ? null : fullText.getText();
             TurnPhase turnPhase = TurnPhaseClassifier.fromScreenText(screenText);
-            int expected = GoldRummyHandGeometry.expectedHandCount(screenText);
-            GoldRummyBitmapVision.HandLayout layout = GoldRummyBitmapVision.detectHand(bitmap, expected);
-            int resolvedExpected = expected;
-            if (resolvedExpected == 0 && (layout.starts().size() == 13 || layout.starts().size() == 14)) {
-                resolvedExpected = layout.starts().size();
-            }
+            int bannerExpected = GoldRummyHandGeometry.expectedHandCount(screenText);
+            int probeCount = GoldRummyScanPolicy.geometryProbeCount(bannerExpected, turnPhase);
+            GoldRummyBitmapVision.HandLayout layout = GoldRummyBitmapVision.detectHand(bitmap, probeCount);
 
-            boolean calibrated = resolvedExpected >= 13 && resolvedExpected <= 14
-                    && layout.cardTop() >= 0
-                    && layout.starts().size() == resolvedExpected;
+            boolean calibrated = layout.cardTop() >= 0 && layout.starts().size() == probeCount;
             if (!calibrated) {
                 AutoScanResult rawFallback = ScreenRegionClassifier.classify(width, height, toHits(fullText));
                 AutoScanResult fallback = new AutoScanResult(
@@ -72,13 +67,15 @@ public final class ScreenOcrScanner implements AutoCloseable {
                 return;
             }
 
-            final int targetCount = resolvedExpected;
+            final int finalBannerExpected = bannerExpected;
             final TurnPhase finalTurnPhase = turnPhase;
             GoldRummyBitmapVision.OcrStrip strip = GoldRummyBitmapVision.buildOcrStrip(bitmap, layout);
             recognizer.process(InputImage.fromBitmap(strip.bitmap(), 0))
                     .addOnSuccessListener(slotText -> {
                         try {
-                            callback.onSuccess(buildCalibratedResult(bitmap, fullText, slotText, layout, strip, targetCount, finalTurnPhase));
+                            callback.onSuccess(buildCalibratedResult(
+                                    bitmap, fullText, slotText, layout, strip,
+                                    finalBannerExpected, finalTurnPhase));
                         } catch (Exception e) {
                             callback.onError("Card-slot parse error: " + e.getClass().getSimpleName());
                         } finally {
@@ -104,7 +101,7 @@ public final class ScreenOcrScanner implements AutoCloseable {
             Text slotText,
             GoldRummyBitmapVision.HandLayout layout,
             GoldRummyBitmapVision.OcrStrip strip,
-            int expectedCount,
+            int bannerExpected,
             TurnPhase turnPhase
     ) {
         int cellCount = strip.jokerCell() + 1;
@@ -144,17 +141,20 @@ public final class ScreenOcrScanner implements AutoCloseable {
         Set<String> diagnosticUnique = new LinkedHashSet<>(all);
         List<String> diagnostics = new ArrayList<>(diagnosticUnique);
 
-        boolean completeHand = hand.size() == expectedCount;
-        double recognizedFraction = expectedCount == 0 ? 0.0 : hand.size() / (double) expectedCount;
+        int resolvedExpected = GoldRummyScanPolicy.resolveExpectedCount(bannerExpected, turnPhase, hand.size());
+        TurnPhase resolvedTurnPhase = GoldRummyScanPolicy.resolveTurnPhase(turnPhase, resolvedExpected);
+        boolean completeHand = resolvedExpected > 0 && hand.size() == resolvedExpected;
+        int denominator = resolvedExpected > 0 ? resolvedExpected : Math.max(1, strip.handCells());
+        double recognizedFraction = hand.size() / (double) denominator;
         double confidence = 0.60 * layout.confidence() + 0.25 * recognizedFraction;
         if (openCard != null) confidence += 0.08;
         if (jokerRank != null) confidence += 0.07;
         confidence = Math.min(1.0, confidence);
         if (!completeHand) confidence = Math.min(confidence, 0.69);
-        if (openCard == null && turnPhase == TurnPhase.USER_PICK) confidence = Math.min(confidence, 0.72);
+        if (openCard == null && resolvedTurnPhase == TurnPhase.USER_PICK) confidence = Math.min(confidence, 0.72);
         if (jokerRank == null) confidence = Math.min(confidence, 0.70);
 
-        return new AutoScanResult(hand, openCard, jokerRank, completeHand, confidence, diagnostics, turnPhase);
+        return new AutoScanResult(hand, openCard, jokerRank, completeHand, confidence, diagnostics, resolvedTurnPhase);
     }
 
     private static String[] collectCellText(Text text, int cellWidth, int cellCount) {
