@@ -132,8 +132,10 @@ final class GoldRummyBitmapVision {
         }
 
         // Dedicated full-card ROIs; unlike v1.1 these cannot be confused with hand OCR near screen centre.
-        Rect openSrc = safeRect((int)(w * 0.615), (int)(h * 0.34), (int)(w * 0.690), (int)(h * 0.55), w, h);
-        Rect jokerSrc = safeRect((int)(w * 0.295), (int)(h * 0.34), (int)(w * 0.355), (int)(h * 0.55), w, h);
+        GoldRummyRois.Box openZone = GoldRummyRois.forFrame(GoldRummyRois.Zone.OPEN,w,h);
+        GoldRummyRois.Box jokerZone = GoldRummyRois.forFrame(GoldRummyRois.Zone.JOKER,w,h);
+        Rect openSrc = safeRect(openZone.left(),openZone.top(),openZone.right(),openZone.bottom(),w,h);
+        Rect jokerSrc = safeRect(jokerZone.left(),jokerZone.top(),jokerZone.right(),jokerZone.bottom(),w,h);
         canvas.drawBitmap(source, openSrc, new Rect(openCell * cellW + 8, 6, (openCell + 1) * cellW - 8, cellH - 6), paint);
         canvas.drawRect(openCell * cellW - 2, 0, openCell * cellW + 2, cellH, divider);
         canvas.drawBitmap(source, jokerSrc, new Rect(jokerCell * cellW + 8, 6, (jokerCell + 1) * cellW - 8, cellH - 6), paint);
@@ -142,8 +144,9 @@ final class GoldRummyBitmapVision {
     }
 
     private static int detectCardTop(int[] px, int w, int h) {
-        int x0 = (int) Math.round(w * 0.08), x1 = (int) Math.round(w * 0.94);
-        int y0 = (int) Math.round(h * 0.50), y1 = (int) Math.round(h * 0.72);
+        GoldRummyRois.Box hand = GoldRummyRois.forFrame(GoldRummyRois.Zone.HAND,w,h);
+        int x0 = hand.left(), x1 = hand.right();
+        int y0 = Math.max(0,hand.top()-Math.round(h*.05f)), y1 = Math.min(h-1,hand.top()+Math.round(h*.17f));
         int consecutive = 0;
         int first = -1;
         for (int y = y0; y <= y1; y++) {
