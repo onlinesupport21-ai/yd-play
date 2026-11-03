@@ -12,8 +12,10 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class ScreenOcrScanner implements AutoCloseable {
@@ -37,21 +39,155 @@ public final class ScreenOcrScanner implements AutoCloseable {
         int height = bitmap.getHeight();
         InputImage image = InputImage.fromBitmap(bitmap, 0);
         recognizer.process(image)
-                .addOnSuccessListener(text -> {
-                    try {
-                        List<OcrHit> hits = toHits(text);
-                        callback.onSuccess(ScreenRegionClassifier.classify(width, height, hits));
-                    } catch (Exception e) {
-                        callback.onError("OCR parse error: " + e.getClass().getSimpleName());
-                    } finally {
-                        bitmap.recycle();
-                    }
-                })
+                .addOnSuccessListener(text -> scanCalibratedOrFallback(bitmap, width, height, text, callback))
                 .addOnFailureListener(error -> {
                     bitmap.recycle();
                     String message = error.getMessage();
                     callback.onError("OCR failed" + (message == null || message.isBlank() ? "" : ": " + message));
                 });
+    }
+
+    private void scanCalibratedOrFallback(Bitmap bitmap, int width, int height, Text fullText, Callback callback) {
+        try {
+            int expected = GoldRummyHandGeometry.expectedHandCount(fullText == null ? null : fullText.getText());
+            GoldRummyBitmapVision.HandLayout layout = GoldRummyBitmapVision.detectHand(bitmap, expected);
+            int resolvedExpected = expected;
+            if (resolvedExpected == 0 && (layout.starts().size() == 13 || layout.starts().size() == 14)) {
+                resolvedExpected = layout.starts().size();
+            }
+
+            boolean calibrated = resolvedExpected >= 13 && resolvedExpected <= 14
+                    && layout.cardTop() >= 0
+                    && layout.starts().size() == resolvedExpected;
+            if (!calibrated) {
+                AutoScanResult fallback = ScreenRegionClassifier.classify(width, height, toHits(fullText));
+                bitmap.recycle();
+                callback.onSuccess(fallback);
+                return;
+            }
+
+            final int targetCount = resolvedExpected;
+            GoldRummyBitmapVision.OcrStrip strip = GoldRummyBitmapVision.buildOcrStrip(bitmap, layout);
+            recognizer.process(InputImage.fromBitmap(strip.bitmap(), 0))
+                    .addOnSuccessListener(slotText -> {
+                        try {
+                            callback.onSuccess(buildCalibratedResult(bitmap, fullText, slotText, layout, strip, targetCount));
+                        } catch (Exception e) {
+                            callback.onError("Card-slot parse error: " + e.getClass().getSimpleName());
+                        } finally {
+                            strip.bitmap().recycle();
+                            bitmap.recycle();
+                        }
+                    })
+                    .addOnFailureListener(error -> {
+                        strip.bitmap().recycle();
+                        bitmap.recycle();
+                        String message = error.getMessage();
+                        callback.onError("Card-slot OCR failed" + (message == null || message.isBlank() ? "" : ": " + message));
+                    });
+        } catch (Exception e) {
+            bitmap.recycle();
+            callback.onError("Calibrated scan error: " + e.getClass().getSimpleName());
+        }
+    }
+
+    private static AutoScanResult buildCalibratedResult(
+            Bitmap bitmap,
+            Text fullText,
+            Text slotText,
+            GoldRummyBitmapVision.HandLayout layout,
+            GoldRummyBitmapVision.OcrStrip strip,
+            int expectedCount
+    ) {
+        int cellCount = strip.jokerCell() + 1;
+        String[] raw = collectCellText(slotText, strip.cellWidth(), cellCount);
+        List<String> hand = new ArrayList<>();
+        List<String> all = new ArrayList<>();
+
+        for (int i = 0; i < strip.handCells(); i++) {
+            String rank = CardTokenParser.extractRank(raw[i]);
+            if (rank == null) continue;
+            if ("PJ".equals(rank)) {
+                hand.add("PJ");
+                all.add("PJ");
+                continue;
+            }
+            String suit = GoldRummyBitmapVision.classifyHandSuit(bitmap, layout.starts().get(i), layout.cardTop());
+            if (suit == null) continue;
+            String code = rank + suit;
+            hand.add(code);
+            all.add(code);
+        }
+
+        String openCard = null;
+        String openRank = CardTokenParser.extractRank(raw[strip.openCell()]);
+        if ("PJ".equals(openRank)) {
+            openCard = "PJ";
+        } else if (openRank != null) {
+            String openSuit = GoldRummyBitmapVision.classifyOpenSuit(bitmap);
+            if (openSuit != null) openCard = openRank + openSuit;
+        }
+        if (openCard != null) all.add(openCard);
+
+        String jokerRank = CardTokenParser.extractRank(raw[strip.jokerCell()]);
+        if ("PJ".equals(jokerRank)) jokerRank = null;
+
+        // Keep generic detections for diagnostics only; they do not override calibrated fields.
+        for (OcrHit hit : toHits(fullText)) {
+            all.addAll(CardTokenParser.extractCardCodes(hit.text()));
+        }
+        Set<String> diagnosticUnique = new LinkedHashSet<>(all);
+        List<String> diagnostics = new ArrayList<>(diagnosticUnique);
+
+        boolean completeHand = hand.size() == expectedCount;
+        double recognizedFraction = expectedCount == 0 ? 0.0 : hand.size() / (double) expectedCount;
+        double confidence = 0.60 * layout.confidence() + 0.25 * recognizedFraction;
+        if (openCard != null) confidence += 0.08;
+        if (jokerRank != null) confidence += 0.07;
+        confidence = Math.min(1.0, confidence);
+        if (!completeHand) confidence = Math.min(confidence, 0.69);
+        if (openCard == null) confidence = Math.min(confidence, 0.72);
+        if (jokerRank == null) confidence = Math.min(confidence, 0.70);
+
+        return new AutoScanResult(hand, openCard, jokerRank, completeHand, confidence, diagnostics);
+    }
+
+    private static String[] collectCellText(Text text, int cellWidth, int cellCount) {
+        StringBuilder[] cells = new StringBuilder[cellCount];
+        for (int i = 0; i < cellCount; i++) cells[i] = new StringBuilder();
+        if (text == null) return buildersToStrings(cells);
+
+        for (Text.TextBlock block : text.getTextBlocks()) {
+            for (Text.Line line : block.getLines()) {
+                boolean usedElement = false;
+                for (Text.Element element : line.getElements()) {
+                    Rect box = element.getBoundingBox();
+                    if (box == null) continue;
+                    int cell = Math.max(0, Math.min(cellCount - 1, box.centerX() / cellWidth));
+                    append(cells[cell], element.getText());
+                    usedElement = true;
+                }
+                if (!usedElement) {
+                    Rect box = line.getBoundingBox();
+                    if (box == null) continue;
+                    int cell = Math.max(0, Math.min(cellCount - 1, box.centerX() / cellWidth));
+                    append(cells[cell], line.getText());
+                }
+            }
+        }
+        return buildersToStrings(cells);
+    }
+
+    private static void append(StringBuilder b, String s) {
+        if (s == null || s.isBlank()) return;
+        if (!b.isEmpty()) b.append(' ');
+        b.append(s.trim());
+    }
+
+    private static String[] buildersToStrings(StringBuilder[] cells) {
+        String[] out = new String[cells.length];
+        for (int i = 0; i < cells.length; i++) out[i] = cells[i].toString();
+        return out;
     }
 
     static List<OcrHit> toHits(Text text) {
