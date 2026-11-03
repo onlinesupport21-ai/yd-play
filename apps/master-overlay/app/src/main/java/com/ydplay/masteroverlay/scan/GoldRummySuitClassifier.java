@@ -12,6 +12,6 @@ public final class GoldRummySuitClassifier {
             throw new IllegalArgumentException("shape ratio must be finite and non-negative");
         }
         if (red) return topToMiddleWidth >= 0.70 ? "H" : "D";
-        return topToMiddleWidth >= 0.46 ? "C" : "S";
+        return topToMiddleWidth >= 0.50 ? "C" : "S";
     }
 }
