@@ -31,8 +31,6 @@ public final class GoldRummyScanPolicy {
 
     public static TurnPhase resolveTurnPhase(TurnPhase phase, int resolvedExpected) {
         if (phase != null && phase != TurnPhase.UNKNOWN) return phase;
-        if (resolvedExpected == 13) return TurnPhase.USER_PICK;
-        if (resolvedExpected == 14) return TurnPhase.USER_DISCARD;
         return TurnPhase.UNKNOWN;
     }
 }
