@@ -2,7 +2,7 @@ name: master-overlay-apk
 
 on:
   push:
-    branches: [master-overlay-autoscan, master-overlay-skin-calibration]
+    branches: [master-overlay-autoscan, master-overlay-skin-calibration, master-overlay-game-brain]
     paths:
       - 'apps/master-overlay/**'
       - '.github/workflows/master-overlay-apk.yml'
