@@ -8,6 +8,6 @@ public record PrimaryDecision(
         String details,
         Severity severity
 ) {
-    public enum Action { PICK_OPEN, DRAW_CLOSED, DISCARD, UNCERTAIN }
+    public enum Action { PICK_OPEN, DRAW_CLOSED, DISCARD, WATCHING, UNCERTAIN }
     public enum Severity { GO, CAUTION, STOP }
 }
