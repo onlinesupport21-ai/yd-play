@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 public class GoldRummyHandGeometryTest {
     @Test public void detectsFourteenCardStartsFromObservedSkinCandidates() {
@@ -36,6 +37,21 @@ public class GoldRummyHandGeometryTest {
                 List.of(187,248,309,445,506,567,703,765,826,887,1023,1084,1220,1282),
                 GoldRummyHandGeometry.selectStarts(width, candidates, 14)
         );
+    }
+
+    @Test public void persistentCardBoundaryBeatsSparseArtworkEdge() {
+        int[] trueLeft =  {42,45,43,44,46,42,45,43,44,45,42,44};
+        int[] trueRight = {225,226,223,224,228,224,225,226,223,227,225,224};
+        double[] trueWhite = {0.92,0.95,0.91,0.94,0.96,0.93,0.95,0.92,0.94,0.96,0.93,0.95};
+
+        int[] noisyLeft =  {210,42,208,45,44,43,215,42,44,43,45,44};
+        int[] noisyRight = {45,44,42,46,45,44,40,43,45,44,46,45};
+        double[] noisyWhite = {0.94,0.25,0.20,0.22,0.24,0.23,0.93,0.20,0.25,0.22,0.24,0.21};
+
+        double trueScore = GoldRummyHandGeometry.boundaryScore(trueLeft, trueRight, trueWhite);
+        double noiseScore = GoldRummyHandGeometry.boundaryScore(noisyLeft, noisyRight, noisyWhite);
+        assertTrue(trueScore > 80.0);
+        assertTrue(trueScore > noiseScore * 2.0);
     }
 
     @Test public void derivesExpectedCardCountFromTurnBanner() {
