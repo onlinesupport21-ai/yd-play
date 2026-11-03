@@ -67,6 +67,7 @@ final class GoldRummyBitmapVision {
             persistence[x] = persistentRows / (double) i;
         }
 
+        double[] topContrast = new double[w];
         List<GoldRummyHandGeometry.Candidate> candidates = new ArrayList<>();
         for (int x = x0 + 3; x <= x1 - 3; x++) {
             double score = boundary[x];
@@ -76,11 +77,13 @@ final class GoldRummyBitmapVision {
                 if (boundary[k] > score) { localMax = false; break; }
             }
             if (localMax) {
+                topContrast[x] = upperBorderContrast(px, w, h, x, cardTop);
                 candidates.add(new GoldRummyHandGeometry.Candidate(x, score, rightWhiteMean[x]));
             }
         }
 
-        List<Integer> starts = GoldRummyHandGeometry.selectStarts(w, candidates, expectedCount);
+        List<Integer> starts = GoldRummyHandGeometry.selectStartsWithTopBand(
+                w, candidates, topContrast, expectedCount);
         double confidence;
         if (expectedCount > 0) confidence = Math.min(1.0, starts.size() / (double) expectedCount);
         else confidence = (starts.size() == 13 || starts.size() == 14) ? 0.82 : Math.min(0.70, starts.size() / 14.0);
@@ -166,6 +169,25 @@ final class GoldRummyBitmapVision {
             }
         }
         return -1;
+    }
+
+    /**
+     * Topmost strip of each card is nearly blank except at real overlapping
+     * vertical borders. Artwork/rank glyphs can have strong long edges further down;
+     * probing just 10 rows prevents them from becoming extra card slots.
+     */
+    private static double upperBorderContrast(int[] px, int width, int height, int x, int cardTop) {
+        if (x < 4 || x + 4 >= width) return 0;
+        int from = Math.min(height, cardTop + 2);
+        int to = Math.min(height, cardTop + 12);
+        if (to <= from) return 0;
+        double total = 0;
+        for (int y = from; y < to; y++) {
+            int left = luma(px[y * width + x - 3]);
+            int right = luma(px[y * width + x + 3]);
+            total += Math.abs(right - left);
+        }
+        return total / (to - from);
     }
 
     private static String classifySuit(Bitmap bitmap, int startX, int topY, int cardWidth, int cardHeight) {
