@@ -20,11 +20,13 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class CaptureService extends Service {
     public static final String EXTRA_RESULT_CODE = "resultCode";
     public static final String EXTRA_RESULT_DATA = "resultData";
     private static final AtomicBoolean SNAPSHOT_REQUESTED = new AtomicBoolean(false);
+    private static final AtomicLong SNAPSHOT_VERSION = new AtomicLong(0);
     private static volatile String publicStatus = "inactive";
     private MediaProjection projection;
     private ImageReader reader;
@@ -32,6 +34,8 @@ public class CaptureService extends Service {
     private HandlerThread thread;
 
     public static String getPublicStatus() { return publicStatus; }
+    public static long getLatestSnapshotVersion() { return SNAPSHOT_VERSION.get(); }
+    public static File getLatestSnapshotFile(Context context) { return new File(context.getCacheDir(), "master_snapshot.png"); }
     public static void requestSnapshot() { SNAPSHOT_REQUESTED.set(true); publicStatus = "snapshot requested"; }
 
     @Override public void onCreate() { super.onCreate(); createChannel(); }
@@ -71,6 +75,8 @@ public class CaptureService extends Service {
 
     private void onFrame(ImageReader r, int width, int height) {
         Image image=null;
+        Bitmap padded=null;
+        Bitmap cropped=null;
         try {
             image=r.acquireLatestImage();
             if (image==null || !SNAPSHOT_REQUESTED.compareAndSet(true,false)) return;
@@ -79,17 +85,25 @@ public class CaptureService extends Service {
             int pixelStride=plane.getPixelStride();
             int rowStride=plane.getRowStride();
             int rowPadding=rowStride-pixelStride*width;
-            Bitmap padded=Bitmap.createBitmap(width+rowPadding/pixelStride,height,Bitmap.Config.ARGB_8888);
+            padded=Bitmap.createBitmap(width+rowPadding/pixelStride,height,Bitmap.Config.ARGB_8888);
             padded.copyPixelsFromBuffer(buffer);
-            Bitmap cropped=Bitmap.createBitmap(padded,0,0,width,height);
-            padded.recycle();
-            File f=new File(getCacheDir(),"master_snapshot.png");
-            try (FileOutputStream out=new FileOutputStream(f)) { cropped.compress(Bitmap.CompressFormat.PNG,92,out); }
-            cropped.recycle();
-            publicStatus="snapshot " + new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date()) + " • " + width + "x" + height;
+            cropped=Bitmap.createBitmap(padded,0,0,width,height);
+            File f=getLatestSnapshotFile(this);
+            boolean saved;
+            try (FileOutputStream out=new FileOutputStream(f)) {
+                saved=cropped.compress(Bitmap.CompressFormat.PNG,92,out);
+                out.flush();
+            }
+            if (!saved) throw new IllegalStateException("PNG encode failed");
+            long version=SNAPSHOT_VERSION.incrementAndGet();
+            publicStatus="snapshot #" + version + " " + new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date()) + " • " + width + "x" + height;
         } catch (Exception e) {
             publicStatus="snapshot error: " + e.getClass().getSimpleName();
-        } finally { if (image!=null) image.close(); }
+        } finally {
+            if (cropped!=null) cropped.recycle();
+            if (padded!=null) padded.recycle();
+            if (image!=null) image.close();
+        }
     }
 
     @Override public void onDestroy() {
