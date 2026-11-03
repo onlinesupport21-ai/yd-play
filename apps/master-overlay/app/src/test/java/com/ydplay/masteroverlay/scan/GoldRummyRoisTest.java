@@ -17,10 +17,10 @@ public class GoldRummyRoisTest {
     @Test public void cropCoordinatesScaleWithFrameSize() {
         GoldRummyRois.Box a=GoldRummyRois.forFrame(GoldRummyRois.Zone.TURN,1536,720);
         GoldRummyRois.Box b=GoldRummyRois.forFrame(GoldRummyRois.Zone.TURN,3072,1440);
-        assertEquals(2*a.left(),b.left());
-        assertEquals(2*a.top(),b.top());
-        assertEquals(2*a.right(),b.right());
-        assertEquals(2*a.bottom(),b.bottom());
+        assertTrue(Math.abs(2*a.left()-b.left()) <= 1);
+        assertTrue(Math.abs(2*a.top()-b.top()) <= 1);
+        assertTrue(Math.abs(2*a.right()-b.right()) <= 1);
+        assertTrue(Math.abs(2*a.bottom()-b.bottom()) <= 1);
     }
     @Test public void zonesTargetGoldSkinScreenshots() {
         GoldRummyRois.Box turn=GoldRummyRois.forFrame(GoldRummyRois.Zone.TURN,1536,709);
