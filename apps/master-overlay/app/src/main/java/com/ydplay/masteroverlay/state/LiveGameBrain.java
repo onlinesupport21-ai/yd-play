@@ -61,14 +61,21 @@ public final class LiveGameBrain {
         int frames = frameConsensus.stableFrames();
         String confidence = Math.round(scan.confidence() * 100) + "%";
         String reason;
-        if (!scan.completeHand() || scan.confidence() < MIN_CONSENSUS_CONFIDENCE) {
-            reason = "Need a complete high-confidence frame before advice • " + confidence;
+        int seen = scan.handCards().size();
+        boolean incomplete = !scan.completeHand() || (seen != 13 && seen != 14);
+        if (incomplete) {
+            reason = "Only " + seen + " cards recognized. Check Vision diagnostics; no action.";
+        } else if (scan.confidence() < MIN_CONSENSUS_CONFIDENCE) {
+            reason = "Card scan confidence too low for advice • " + confidence;
         } else {
             reason = "Matching table frames " + frames + "/" + CONSENSUS_FRAMES + " • " + confidence;
         }
+        String headline = incomplete
+                ? "HAND SCAN " + seen + "/13–14"
+                : "STABILIZING " + Math.min(frames, CONSENSUS_FRAMES) + "/" + CONSENSUS_FRAMES;
         return new PrimaryDecision(
                 PrimaryDecision.Action.UNCERTAIN,
-                "STABILIZING " + Math.min(frames, CONSENSUS_FRAMES) + "/" + CONSENSUS_FRAMES,
+                headline,
                 null,
                 reason,
                 "No action until three consecutive card states agree.",
