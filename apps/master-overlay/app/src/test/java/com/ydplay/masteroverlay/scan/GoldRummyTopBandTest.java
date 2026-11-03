@@ -33,6 +33,14 @@ public class GoldRummyTopBandTest {
         assertEquals(expected, GoldRummyHandGeometry.selectStartsWithTopBand(
                 1536,candidates(positions),contrasts(1536,positions,delta),0));
     }
+    @Test public void native2340By1080CaptureKeepsThirteenCards() {
+        int[] positions={330,426,518,611,817,913,1117,1213,1298,1399,1603,1700,1905,2040};
+        double[] delta={104.4,31.2,28.5,27.8,75.4,37.3,52.7,33.3,46.9,50.4,62.1,46.9,133.5,0};
+        List<Integer> expected=List.of(330,426,518,611,817,913,1117,1213,1298,1399,1603,1700,1905);
+        assertEquals(expected, GoldRummyHandGeometry.selectStartsWithTopBand(
+                2340,candidates(positions),contrasts(2340,positions,delta),0));
+    }
+
     @Test public void blankTopBandCannotBeAcceptedAsRealCard() {
         int[] positions={400,460,520};
         double[] delta={2.0,1.0,0.0};
